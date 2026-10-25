@@ -45,6 +45,8 @@ htmlcov/
 *.ckpt
 *.bin
 *.onnx
+# Whitelist official lightweight pretrained models
+!pretrained/*.pt
 checkpoints*/
 outputs/**/dataset_cache/
 outputs/**/*.pt
