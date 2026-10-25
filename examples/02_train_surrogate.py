@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import time
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
@@ -101,8 +103,12 @@ def train_surrogate(
     lr: float = 1e-3,
     div_weight: float = 0.02,
     use_checkpointing: bool = True,
+    device: Optional[str] = None,
+    throttle_sleep: float = 0.0,
 ):
     """Trains HybridCFDNet on the massive dataset with configurable parameter scaling."""
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     print("=" * 80)
     print("🚀 STARTING TRAINING ON MASSIVE 154-REGIME OPENFOAM DATASET")
     print(f"Dataset path       : {dataset_path}")
@@ -112,10 +118,10 @@ def train_surrogate(
     print(f"Grad Accumulation  : {grad_accum_steps} (Effective batch size: {batch_size * grad_accum_steps})")
     print(f"Learning rate      : {lr}")
     print(f"Checkpointing      : {use_checkpointing}")
+    print(f"Device             : {device.upper()}")
+    if throttle_sleep > 0:
+        print(f"Thermal Throttle   : {throttle_sleep:.3f}s sleep per batch to prevent GPU overheating")
     print("=" * 80)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Training device: {device.upper()}")
 
     # 1. Load dataset package
     print("Loading pre-packaged PyTorch dataset...")
@@ -197,6 +203,8 @@ def train_surrogate(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
+                if throttle_sleep > 0:
+                    time.sleep(throttle_sleep)
 
             bs = len(b_inp)
             running_train_mse += loss_mse.item() * bs
@@ -262,7 +270,7 @@ def train_surrogate(
             is_best = ""
 
         # Periodic logging
-        if epoch % 10 == 0 or epoch == 1 or epoch == epochs:
+        if epoch % 5 == 0 or epoch == 1 or epoch == epochs:
             elapsed = time.time() - start_train_time
             print(
                 f"Epoch [{epoch:03d}/{epochs:03d}] "
@@ -343,6 +351,8 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3, help="Initial learning rate")
     parser.add_argument("--nowait", action="store_true", help="Skip waiting for PID")
     parser.add_argument("--no-checkpointing", action="store_true", help="Disable gradient checkpointing")
+    parser.add_argument("--device", type=str, default=None, choices=["cuda", "cpu"], help="Compute device ('cuda' or 'cpu')")
+    parser.add_argument("--throttle-sleep", type=float, default=0.0, help="Thermal throttle delay in seconds per step to prevent GPU overheating (e.g. 0.05)")
     args = parser.parse_args()
 
     dataset_path = WORKSPACE / "outputs/massive_openfoam_dataset/massive_openfoam_dataset.pt"
@@ -364,6 +374,8 @@ def main():
         grad_accum_steps=args.grad_accum_steps,
         lr=args.lr,
         use_checkpointing=not args.no_checkpointing,
+        device=args.device,
+        throttle_sleep=args.throttle_sleep,
     )
 
 
