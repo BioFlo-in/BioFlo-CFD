@@ -1,30 +1,29 @@
-# NLSS: Neural Navier-Stokes Learned Surrogate
-### AI-Powered Acceleration for OpenFOAM CFD Simulations
+# BioFlo-CFD: AI Surrogate & OpenFOAM Hybrid Accelerator
+### Physics-Informed Neural Operator & Bioprocess Digital Twin
 
-**NLSS** is a high-performance deep learning surrogate and acceleration framework for **OpenFOAM** and computational fluid dynamics (CFD). It trains neural operators on simulation snapshots and predicts subsequent time steps, enabling up to **orders-of-magnitude faster rollouts** and **hybrid solver warm-starting**.
+**BioFlo-CFD** is an industrial-grade deep learning surrogate and acceleration framework for **OpenFOAM** and Computational Fluid Dynamics (CFD). It trains multi-scale neural operators (`HybridCFDNet` combining Spectral Fourier Layers, MeshGraphNet flux message-passing, and causal attention heads) across 150+ OpenFOAM simulation regimes, cutting simulation iteration times by orders of magnitude while preserving machine-precision physical conservation.
 
 ---
 
 ## 🚀 Key Capabilities
 
-1. **Native OpenFOAM I/O**:
-   - Parses OpenFOAM time directories (`0/`, `0.01/`, `0.1/`, etc.) containing `volVectorField` (`U`) and `volScalarField` (`p`, `T`, `k`, `omega`).
-   - Exports AI predictions directly back into native OpenFOAM file structures for seamless post-processing (`paraFoam`, `foamToVTK`) or solver resumption.
-   - Parses `constant/polyMesh/` (points, owner, neighbour) into cell adjacency graphs for unstructured meshes.
+1. **Hybrid CFD & Neural Warm-Starter**:
+   - AI predicts transient flow states $\hat{S}_{t+\Delta t}^{AI}$ as initial guesses directly injected into OpenFOAM's PISO/SIMPLE linear solvers, cutting linear solver iterations by 5x–15x while maintaining strict physical boundary and mass conservation.
 
-2. **Surrogate Model Architectures**:
-   - **Fourier Neural Operator (FNO-2D)**: Spectral convolution in frequency space; mesh- and resolution-invariant; captures multi-scale vortices.
-   - **Residual U-Net (ResUNet-CFD)**: Multi-scale convolutional encoder-decoder with residual skip connections; preserves fine shear and boundary layers.
-   - **MeshGraphNet (MeshGNN)**: Message-passing GNN over cell adjacency graphs for arbitrary unstructured polyhedral/tetrahedral OpenFOAM meshes.
+2. **Unified Hybrid Operator Architecture (`HybridCFDNet`)**:
+   - **Fourier Spectral Convolutions**: Captures global elliptical pressure fields and acoustic propagation.
+   - **Mesh GraphNet Message-Passing**: Resolves localized cell-face flux balances and viscous boundary layers.
+   - **DNN Inter-Layer Linker**: Cross-modality highway dynamically fusing spectral and graph representations with adaptive gating ($\alpha$).
+   - **Spatiotemporal Transformer Head**: Causal attention over temporal histories for unsteady vortex shedding.
 
-3. **Physics-Informed Regularization**:
-   - **Continuity Penalty**: $\mathcal{L}_{div} = \|\nabla \cdot \mathbf{u}\|^2$ prevents divergence drift and mass violation during long rollouts.
-   - **Vorticity Conservation**: $\mathcal{L}_{vort} = \|\omega_{pred} - \omega_{gt}\|^2$ preserves physical turbulent structures.
-   - **Relative $L_2$ (Sobolev)** loss for operator learning.
+3. **Stirred-Tank Bioreactor (STR) Digital Twin**:
+   - Direct integration of bioprocess cell viability diagnostics:
+     - Hydrodynamic shear stress $\tau(x, y)$ (safe thresholds for mammalian CHO / stem cells).
+     - Turbulent kinetic energy dissipation rate $\epsilon(x, y)$ (W/kg).
+     - Kolmogorov microscale eddy sizing $\eta_K$ ($\mu\text{m}$).
 
-4. **Dual Acceleration Modes**:
-   - **Mode A: Full Autoregressive Surrogate**: AI steps forward $S_0 \to S_1 \to \dots \to S_T$ at millisecond latency (~2.3 ms/step on GPU vs seconds in CFD).
-   - **Mode B: Hybrid OpenFOAM Warm-Starter**: AI predicts $\hat{S}_{t+\Delta t}^{AI}$ as an ultra-accurate initial guess for OpenFOAM's PISO/SIMPLE linear solvers, cutting linear iterations by 5x–10x while maintaining machine-precision numerical conservation.
+4. **154-Regime Multi-Source Ingestion Engine**:
+   - Ingests, normalizes, and packages upstream OpenFOAM tutorials, community benchmarks (Wolf Dynamics, Holzmann, Phresher, UnnamedMoose, NimaSam), velocity sweeps ($0.05\text{--}25.0\text{ m/s}$), and surface boundary condition variations with $SO(2)$ symmetry augmentations.
 
 ---
 

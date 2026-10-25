@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nlss"
+name = "bioflo-cfd"
 version = "0.1.0"
-description = "Neural Navier-Stokes Learned Surrogate: AI acceleration for OpenFOAM CFD simulations"
+description = "BioFlo-CFD: AI Surrogate & OpenFOAM Hybrid Accelerator for Fluid Dynamics and Bioprocess Digital Twins"
 readme = "README.md"
-authors = [{ name = "Ajit" }]
+authors = [{ name = "BioFlo" }, { name = "Ajit Kumar", email = "meajitsheoran@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
@@ -20,6 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
+bioflo-cfd = "nlss.cli:main"
 nlss = "nlss.cli:main"
 
 [tool.setuptools.packages.find]
