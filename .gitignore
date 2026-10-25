@@ -1,0 +1,78 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# PyTorch / Checkpoints / Weights & Large Binaries (> 50-100MB)
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+checkpoints*/
+outputs/**/dataset_cache/
+outputs/**/*.pt
+
+# External third-party cloned OpenFOAM repos
+external_openfoam_sources/
+
+# Large OpenFOAM numerical solve time-step fields & case outputs
+openfoam_cases/**/0.*
+openfoam_cases/**/[1-9]*
+openfoam_cases/**/uniform/
+openfoam_cases/**/processor*
+outputs/**/0.*
+outputs/**/[1-9]*
+outputs/**/uniform/
+outputs/**/processor*
+outputs/**/ai_predictions/
+outputs/**/ground_truth/
+outputs/openfoam_ground_truth/
+outputs/openfoam_ai_predictions/
+outputs/real_openfoam_ai_predictions/
+outputs/bioreactor_run/ai_predictions/
+outputs/bioreactor_run/ground_truth/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store

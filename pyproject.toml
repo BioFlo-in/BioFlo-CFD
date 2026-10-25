@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nlss"
+version = "0.1.0"
+description = "Neural Navier-Stokes Learned Surrogate: AI acceleration for OpenFOAM CFD simulations"
+readme = "README.md"
+authors = [{ name = "Ajit" }]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "tqdm>=4.65.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+nlss = "nlss.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nlss*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
