@@ -365,15 +365,16 @@ def train_surrogate(
 
     # Plot loss curves
     fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(range(1, epochs + 1), train_loss_hist, label="Train MSE", color="#1f77b4", lw=2)
-    ax1.plot(range(1, epochs + 1), val_loss_hist, label="Val MSE", color="#ff7f0e", lw=2)
+    plot_epochs = list(range(start_epoch, epochs + 1))
+    ax1.plot(plot_epochs, train_loss_hist, label="Train MSE", color="#1f77b4", lw=2)
+    ax1.plot(plot_epochs, val_loss_hist, label="Val MSE", color="#ff7f0e", lw=2)
     ax1.set_xlabel("Epoch", fontweight="bold")
     ax1.set_ylabel("Normalized Mean Squared Error", fontweight="bold", color="#1f77b4")
     ax1.set_yscale("log")
     ax1.grid(True, linestyle="--", alpha=0.5)
 
     ax2 = ax1.twinx()
-    ax2.plot(range(1, epochs + 1), div_loss_hist, label="Continuity Div Loss", color="#2ca02c", linestyle="--", lw=1.5)
+    ax2.plot(plot_epochs, div_loss_hist, label="Continuity Div Loss", color="#2ca02c", linestyle="--", lw=1.5)
     ax2.set_ylabel("Divergence Penalty ||div(u)||^2", fontweight="bold", color="#2ca02c")
     ax2.set_yscale("log")
 
