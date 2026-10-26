@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import time
+from typing import Dict, List, Optional, Tuple
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from pathlib import Path
@@ -61,6 +62,32 @@ def get_available_gpu_memory_mb() -> float:
         return 2048.0
 
 
+def get_gpu_temperature() -> int:
+    """Returns GPU temperature in Celsius."""
+    if not torch.cuda.is_available():
+        return 0
+    try:
+        import subprocess
+        res = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,nounits,noheader"],
+            encoding="utf-8"
+        )
+        return int(res.strip().split("\n")[0])
+    except Exception:
+        return 0
+
+
+def check_and_throttle_gpu_temp(max_temp: int = 72, cool_down_target: int = 62):
+    """Enforces active thermal ceiling, preventing laptop overheating."""
+    temp = get_gpu_temperature()
+    if temp >= max_temp:
+        print(f"\n❄️  [THERMAL GUARD] GPU reached {temp}°C (limit: {max_temp}°C). Cooling down...")
+        while temp > cool_down_target:
+            time.sleep(3)
+            temp = get_gpu_temperature()
+        print(f"✓ Cooled down to {temp}°C. Resuming execution.")
+
+
 def wait_for_gpu_release(target_pid: int = 313314, min_free_vram_mb: int = 3000, poll_interval_sec: int = 20):
     """Politely waits until the targeted PID finishes and sufficient GPU VRAM is free."""
     print("=" * 80)
@@ -96,7 +123,7 @@ def wait_for_gpu_release(target_pid: int = 313314, min_free_vram_mb: int = 3000,
 def train_surrogate(
     dataset_path: Path,
     output_dir: Path,
-    preset: str = "large",
+    preset: str = "medium",
     epochs: int = 200,
     batch_size: int = 16,
     grad_accum_steps: int = 2,
@@ -105,6 +132,8 @@ def train_surrogate(
     use_checkpointing: bool = True,
     device: Optional[str] = None,
     throttle_sleep: float = 0.0,
+    max_temp: int = 72,
+    resume: Optional[str] = None,
 ):
     """Trains HybridCFDNet on the massive dataset with configurable parameter scaling."""
     if device is None:
@@ -113,7 +142,7 @@ def train_surrogate(
     print("🚀 STARTING TRAINING ON MASSIVE 154-REGIME OPENFOAM DATASET")
     print(f"Dataset path       : {dataset_path}")
     print(f"Model Preset       : {preset.upper()}")
-    print(f"Epochs             : {epochs}")
+    print(f"Target Epochs      : {epochs}")
     print(f"Batch size (micro) : {batch_size}")
     print(f"Grad Accumulation  : {grad_accum_steps} (Effective batch size: {batch_size * grad_accum_steps})")
     print(f"Learning rate      : {lr}")
@@ -121,6 +150,7 @@ def train_surrogate(
     print(f"Device             : {device.upper()}")
     if throttle_sleep > 0:
         print(f"Thermal Throttle   : {throttle_sleep:.3f}s sleep per batch to prevent GPU overheating")
+    print(f"Max GPU Temp Guard : {max_temp}°C (auto-cool pause if exceeded)")
     print("=" * 80)
 
     # 1. Load dataset package
@@ -171,13 +201,40 @@ def train_surrogate(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
+    start_epoch = 1
+
+    # Resume from checkpoint if requested
+    if resume:
+        resume_path = Path(resume)
+        if resume_path.exists():
+            print(f"🔄 Resuming from checkpoint: {resume_path}")
+            ckpt = torch.load(resume_path, map_location=device, weights_only=False)
+            if "model_state_dict" in ckpt:
+                try:
+                    model.load_state_dict(ckpt["model_state_dict"])
+                    print("✓ Loaded model state dict.")
+                except Exception as e:
+                    print(f"⚠️ Could not load entire model state dict: {e}")
+            if "optimizer_state_dict" in ckpt:
+                try:
+                    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+                    print("✓ Loaded optimizer state dict.")
+                except Exception:
+                    pass
+            if "val_loss" in ckpt:
+                best_val_loss = float(ckpt["val_loss"])
+                print(f"✓ Resumed best val loss: {best_val_loss:.6f}")
+            if "epoch" in ckpt:
+                start_epoch = int(ckpt["epoch"]) + 1
+                print(f"✓ Resuming at epoch: {start_epoch}")
+
     train_loss_hist = []
     val_loss_hist = []
     div_loss_hist = []
 
     start_train_time = time.time()
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch, epochs + 1):
         model.train()
         running_train_mse = 0.0
         running_train_div = 0.0
@@ -206,6 +263,10 @@ def train_surrogate(
                 if throttle_sleep > 0:
                     time.sleep(throttle_sleep)
 
+            # Check thermal guard every 25 steps
+            if (step_idx + 1) % 25 == 0 and device == "cuda":
+                check_and_throttle_gpu_temp(max_temp=max_temp)
+
             bs = len(b_inp)
             running_train_mse += loss_mse.item() * bs
             running_train_div += loss_div.item() * bs
@@ -232,6 +293,10 @@ def train_surrogate(
 
         epoch_val_mse = running_val_mse / n_val_samples
         val_loss_hist.append(epoch_val_mse)
+
+        # End of epoch thermal guard
+        if device == "cuda":
+            check_and_throttle_gpu_temp(max_temp=max_temp)
 
         # Save best model
         if epoch_val_mse < best_val_loss:
@@ -270,14 +335,16 @@ def train_surrogate(
             is_best = ""
 
         # Periodic logging
-        if epoch % 5 == 0 or epoch == 1 or epoch == epochs:
+        if epoch % 5 == 0 or epoch == start_epoch or epoch == epochs:
             elapsed = time.time() - start_train_time
+            curr_temp = get_gpu_temperature() if device == "cuda" else 0
+            temp_str = f" | GPU: {curr_temp}°C" if device == "cuda" else ""
             print(
                 f"Epoch [{epoch:03d}/{epochs:03d}] "
                 f"Train MSE: {epoch_train_mse:.5f} | "
                 f"Div Loss: {epoch_train_div:.5f} | "
                 f"Val MSE: {epoch_val_mse:.5f} | "
-                f"LR: {scheduler.get_last_lr()[0]:.2e} | "
+                f"LR: {scheduler.get_last_lr()[0]:.2e}{temp_str} | "
                 f"Time: {elapsed:.1f}s{is_best}"
             )
 
@@ -353,6 +420,8 @@ def main():
     parser.add_argument("--no-checkpointing", action="store_true", help="Disable gradient checkpointing")
     parser.add_argument("--device", type=str, default=None, choices=["cuda", "cpu"], help="Compute device ('cuda' or 'cpu')")
     parser.add_argument("--throttle-sleep", type=float, default=0.0, help="Thermal throttle delay in seconds per step to prevent GPU overheating (e.g. 0.05)")
+    parser.add_argument("--max-temp", type=int, default=70, help="Maximum GPU temperature before auto-pause (default: 70°C)")
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume training from")
     args = parser.parse_args()
 
     dataset_path = WORKSPACE / "outputs/massive_openfoam_dataset/massive_openfoam_dataset.pt"
@@ -376,6 +445,8 @@ def main():
         use_checkpointing=not args.no_checkpointing,
         device=args.device,
         throttle_sleep=args.throttle_sleep,
+        max_temp=args.max_temp,
+        resume=args.resume,
     )
 
 
