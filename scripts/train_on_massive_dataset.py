@@ -334,7 +334,7 @@ def train_surrogate(
         else:
             is_best = ""
 
-        # Periodic logging
+        # Periodic logging and safety save
         if epoch % 5 == 0 or epoch == start_epoch or epoch == epochs:
             elapsed = time.time() - start_train_time
             curr_temp = get_gpu_temperature() if device == "cuda" else 0
@@ -346,6 +346,21 @@ def train_surrogate(
                 f"Val MSE: {epoch_val_mse:.5f} | "
                 f"LR: {scheduler.get_last_lr()[0]:.2e}{temp_str} | "
                 f"Time: {elapsed:.1f}s{is_best}"
+            )
+            # Periodic latest checkpoint save
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "preset": preset,
+                    "num_parameters": total_params,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": epoch_val_mse,
+                    "normalizer": normalizer,
+                    "normalizer_mean": normalizer.mean,
+                    "normalizer_std": normalizer.std,
+                },
+                output_dir / f"hybrid_cfd_net_{preset}_latest.pt",
             )
 
     # Save final latest model
