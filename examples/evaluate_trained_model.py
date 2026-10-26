@@ -52,20 +52,34 @@ def load_model_and_case(ckpt_path: Path, case_dir: Path, device: torch.device):
     print(f"📦 Loading trained checkpoint from: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
+    sd = ckpt["model_state_dict"]
+    lifting_weight = sd["lifting.0.weight"]
+    hidden_dim = lifting_weight.shape[0]
+
     model = HybridCFDNet(
         in_channels=3,
         out_channels=3,
-        hidden_dim=48,
+        hidden_dim=hidden_dim,
         modes1=12,
         modes2=12,
         num_layers=2,
         num_heads=4,
         enforce_boundary=False,
     ).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(sd)
     model.eval()
 
-    normalizer = FieldNormalizer.from_dict(ckpt["normalizer"])
+    if "normalizer" in ckpt and isinstance(ckpt["normalizer"], dict):
+        normalizer = FieldNormalizer.from_dict(ckpt["normalizer"])
+    elif "normalizer_mean" in ckpt:
+        normalizer = FieldNormalizer()
+        normalizer.mean = ckpt["normalizer_mean"].to(device)
+        normalizer.std = ckpt["normalizer_std"].to(device)
+    elif "normalizer" in ckpt:
+        normalizer = ckpt["normalizer"]
+    else:
+        normalizer = FieldNormalizer()
+
     dataset, _ = load_dataset_from_openfoam_case(case_dir, grid_shape=(64, 64))
 
     return model, normalizer, dataset, ckpt
@@ -245,7 +259,8 @@ def test_inference_latency_benchmark(
     for _ in range(warmup):
         with torch.no_grad():
             _ = model(dummy_input)
-    torch.cuda.synchronize()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
 
     # Timed runs
     times = []
@@ -253,7 +268,8 @@ def test_inference_latency_benchmark(
         t0 = time.perf_counter()
         with torch.no_grad():
             _ = model(dummy_input)
-        torch.cuda.synchronize()
+        if device.type == "cuda":
+            torch.cuda.synchronize()
         times.append((time.perf_counter() - t0) * 1000.0)
 
     mean_ms = float(np.mean(times))
@@ -261,7 +277,8 @@ def test_inference_latency_benchmark(
     openfoam_ms = 72.30  # Measured icoFoam latency per step
     speedup = openfoam_ms / mean_ms
 
-    print(f"• GPU Device:                    {torch.cuda.get_device_name(0)}")
+    dev_name = torch.cuda.get_device_name(0) if device.type == "cuda" else "CPU"
+    print(f"• Hardware Device:               {dev_name}")
     print(f"• Surrogate Step Latency:        \033[1;32m{mean_ms:.2f} ± {std_ms:.2f} ms/step\033[0m")
     print(f"• Numerical Solver (icoFoam):    {openfoam_ms:.2f} ms/step")
     print(f"• Net Acceleration Factor:       \033[1;32m{speedup:.1f}x FASTER\033[0m")
@@ -430,21 +447,49 @@ def generate_test_report_figures(
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Evaluate trained surrogate on CFD benchmark test suite")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint .pt")
+    parser.add_argument("--case-dir", type=str, default=None, help="Path to OpenFOAM ground truth case")
+    parser.add_argument("--device", type=str, default=None, choices=["cuda", "cpu"], help="Compute device ('cuda' or 'cpu')")
+    parser.add_argument("--out-dir", type=str, default="outputs/model_test_results", help="Output directory for plots")
+    args = parser.parse_args()
+
     print("=" * 75)
-    print("      NLSS: COMPREHENSIVE TRAINED MODEL TEST & SCIENTIFIC AUDIT")
+    print("      BioFlo-CFD: COMPREHENSIVE SURROGATE CFD BENCHMARK TEST SUITE")
     print("=" * 75)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"• Hardware Device:               {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
+    if args.device is not None:
+        device = torch.device(args.device)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev_desc = torch.cuda.get_device_name(0) if device.type == "cuda" else "CPU"
+    print(f"• Hardware Device:               {device} ({dev_desc})")
 
-    ckpt_path = Path("outputs/full_openfoam_run/checkpoints/best_hybrid_openfoam_1350epochs.pt")
-    case_dir = Path("outputs/sample_run/openfoam_solver_case")
-    out_dir = Path("outputs/model_test_results")
+    # Select checkpoint
+    if args.checkpoint:
+        ckpt_path = Path(args.checkpoint)
+    elif Path("pretrained/bioflo_cfd_hybrid_net.pt").exists():
+        ckpt_path = Path("pretrained/bioflo_cfd_hybrid_net.pt")
+    elif Path("outputs/full_openfoam_run/checkpoints/best_hybrid_openfoam_1350epochs.pt").exists():
+        ckpt_path = Path("outputs/full_openfoam_run/checkpoints/best_hybrid_openfoam_1350epochs.pt")
+    else:
+        ckpt_path = Path("checkpoints_massive_openfoam/hybrid_cfd_net_best.pt")
+
+    # Select case dir
+    if args.case_dir:
+        case_dir = Path(args.case_dir)
+    elif Path("outputs/sample_run/openfoam_solver_case").exists():
+        case_dir = Path("outputs/sample_run/openfoam_solver_case")
+    else:
+        case_dir = Path("openfoam_cases/lidDrivenCavity")
+
+    out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Load Model
     model, normalizer, dataset, ckpt = load_model_and_case(ckpt_path, case_dir, device)
-    print(f"✓ Model loaded: {sum(p.numel() for p in model.parameters()):,} parameters (Epoch {ckpt.get('epoch', 1350)})")
+    print(f"✓ Model loaded: {sum(p.numel() for p in model.parameters()):,} parameters (Epoch {ckpt.get('epoch', 'N/A')})")
 
     # Run Benchmark Tests
     gt, pred, metrics = test_in_distribution_accuracy(model, dataset, normalizer, device)

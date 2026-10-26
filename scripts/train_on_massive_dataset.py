@@ -262,7 +262,7 @@ def train_surrogate(
             is_best = ""
 
         # Periodic logging
-        if epoch % 10 == 0 or epoch == 1 or epoch == epochs:
+        if epoch % 5 == 0 or epoch == 1 or epoch == epochs:
             elapsed = time.time() - start_train_time
             print(
                 f"Epoch [{epoch:03d}/{epochs:03d}] "
