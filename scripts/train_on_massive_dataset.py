@@ -77,7 +77,7 @@ def get_gpu_temperature() -> int:
         return 0
 
 
-def check_and_throttle_gpu_temp(max_temp: int = 72, cool_down_target: int = 62):
+def check_and_throttle_gpu_temp(max_temp: int = 80, cool_down_target: int = 70):
     """Enforces active thermal ceiling, preventing laptop overheating."""
     temp = get_gpu_temperature()
     if temp >= max_temp:
@@ -120,6 +120,32 @@ def wait_for_gpu_release(target_pid: int = 313314, min_free_vram_mb: int = 3000,
         time.sleep(poll_interval_sec)
 
 
+def compute_cfd_composite_loss(b_pred, b_tgt, normalizer, div_weight=0.01, eps=1e-4):
+    """Computes scale-invariant Relative L2 + MSE + Continuity Divergence Loss."""
+    mse = nn.functional.mse_loss(b_pred, b_tgt)
+    pred_phys = normalizer.denormalize(b_pred)
+    tgt_phys = normalizer.denormalize(b_tgt)
+
+    # Velocity relative L2
+    u_diff = pred_phys[:, :2] - tgt_phys[:, :2]
+    u_diff_norm = torch.norm(u_diff.reshape(u_diff.shape[0], -1), dim=1)
+    u_tgt_norm = torch.norm(tgt_phys[:, :2].reshape(tgt_phys.shape[0], -1), dim=1) + eps
+    loss_vel = torch.mean(u_diff_norm / u_tgt_norm)
+
+    # Pressure relative L2
+    p_diff = pred_phys[:, 2:3] - tgt_phys[:, 2:3]
+    p_diff_norm = torch.norm(p_diff.reshape(p_diff.shape[0], -1), dim=1)
+    p_tgt_norm = torch.norm(tgt_phys[:, 2:3].reshape(tgt_phys.shape[0], -1), dim=1) + eps
+    loss_p = torch.mean(p_diff_norm / p_tgt_norm)
+
+    # Divergence
+    div = compute_divergence_2d(pred_phys[:, :2])
+    loss_div = torch.mean(div ** 2)
+
+    total = 0.5 * loss_vel + 0.2 * loss_p + 0.3 * mse + div_weight * loss_div
+    return total, mse, loss_vel, loss_div
+
+
 def train_surrogate(
     dataset_path: Path,
     output_dir: Path,
@@ -128,11 +154,11 @@ def train_surrogate(
     batch_size: int = 16,
     grad_accum_steps: int = 2,
     lr: float = 1e-3,
-    div_weight: float = 0.02,
+    div_weight: float = 0.01,
     use_checkpointing: bool = True,
     device: Optional[str] = None,
     throttle_sleep: float = 0.0,
-    max_temp: int = 72,
+    max_temp: int = 80,
     resume: Optional[str] = None,
 ):
     """Trains HybridCFDNet on the massive dataset with configurable parameter scaling."""
@@ -196,8 +222,9 @@ def train_surrogate(
     print(f"HybridCFDNet [{preset.upper()}] trainable parameters: {total_params:,}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
-    mse_fn = nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-5
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
@@ -232,11 +259,15 @@ def train_surrogate(
     val_loss_hist = []
     div_loss_hist = []
 
+    if start_epoch > epochs:
+        print(f"✓ Already completed {start_epoch - 1} epochs (target: {epochs}). Increase --epochs to train further.")
+        return
+
     start_train_time = time.time()
 
     for epoch in range(start_epoch, epochs + 1):
         model.train()
-        running_train_mse = 0.0
+        running_train_loss = 0.0
         running_train_div = 0.0
         n_train_samples = 0
         optimizer.zero_grad()
@@ -258,15 +289,12 @@ def train_surrogate(
             b_tgt = b_tgt.to(device)
 
             b_pred = model(b_inp)
-            loss_mse = mse_fn(b_pred, b_tgt)
+            loss_total, mse, l_vel, l_div = compute_cfd_composite_loss(
+                b_pred, b_tgt, normalizer, div_weight=div_weight
+            )
 
-            # Physics divergence penalty on denormalized physical velocity
-            b_pred_phys = normalizer.denormalize(b_pred)
-            div = compute_divergence_2d(b_pred_phys[:, :2])
-            loss_div = torch.mean(div ** 2)
-
-            total_loss = (loss_mse + div_weight * loss_div) / grad_accum_steps
-            total_loss.backward()
+            total_loss_scaled = loss_total / grad_accum_steps
+            total_loss_scaled.backward()
 
             if (step_idx + 1) % grad_accum_steps == 0 or (step_idx + 1) == len(train_loader):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -280,39 +308,41 @@ def train_surrogate(
                 check_and_throttle_gpu_temp(max_temp=max_temp)
 
             bs = len(b_inp)
-            running_train_mse += loss_mse.item() * bs
-            running_train_div += loss_div.item() * bs
+            running_train_loss += loss_total.item() * bs
+            running_train_div += l_div.item() * bs
             n_train_samples += bs
 
-        scheduler.step()
-
-        epoch_train_mse = running_train_mse / n_train_samples
+        epoch_train_loss = running_train_loss / n_train_samples
         epoch_train_div = running_train_div / n_train_samples
-        train_loss_hist.append(epoch_train_mse)
+        train_loss_hist.append(epoch_train_loss)
         div_loss_hist.append(epoch_train_div)
 
         # Validation
         model.eval()
-        running_val_mse = 0.0
+        running_val_loss = 0.0
         n_val_samples = 0
         with torch.no_grad():
             for b_inp, b_tgt in val_loader:
                 b_inp = b_inp.to(device)
                 b_tgt = b_tgt.to(device)
                 b_pred = model(b_inp)
-                running_val_mse += mse_fn(b_pred, b_tgt).item() * len(b_inp)
+                v_loss, _, _, _ = compute_cfd_composite_loss(
+                    b_pred, b_tgt, normalizer, div_weight=div_weight
+                )
+                running_val_loss += v_loss.item() * len(b_inp)
                 n_val_samples += len(b_inp)
 
-        epoch_val_mse = running_val_mse / n_val_samples
-        val_loss_hist.append(epoch_val_mse)
+        epoch_val_loss = running_val_loss / n_val_samples
+        val_loss_hist.append(epoch_val_loss)
+        scheduler.step(epoch_val_loss)
 
         # End of epoch thermal guard
         if device == "cuda":
             check_and_throttle_gpu_temp(max_temp=max_temp)
 
         # Save best model
-        if epoch_val_mse < best_val_loss:
-            best_val_loss = epoch_val_mse
+        if epoch_val_loss < best_val_loss:
+            best_val_loss = epoch_val_loss
             torch.save(
                 {
                     "epoch": epoch,
@@ -347,16 +377,17 @@ def train_surrogate(
             is_best = ""
 
         # Periodic logging and safety save
-        if epoch % 5 == 0 or epoch == start_epoch or epoch == epochs:
+        current_lr = optimizer.param_groups[0]["lr"]
+        if epoch % 5 == 0 or epoch == start_epoch or epoch == epochs or is_best:
             elapsed = time.time() - start_train_time
             curr_temp = get_gpu_temperature() if device == "cuda" else 0
             temp_str = f" | GPU: {curr_temp}°C" if device == "cuda" else ""
             print(
                 f"Epoch [{epoch:03d}/{epochs:03d}] "
-                f"Train MSE: {epoch_train_mse:.5f} | "
+                f"Train Loss: {epoch_train_loss:.5f} | "
+                f"Val Loss: {epoch_val_loss:.5f} | "
                 f"Div Loss: {epoch_train_div:.5f} | "
-                f"Val MSE: {epoch_val_mse:.5f} | "
-                f"LR: {scheduler.get_last_lr()[0]:.2e}{temp_str} | "
+                f"LR: {current_lr:.2e}{temp_str} | "
                 f"Time: {elapsed:.1f}s{is_best}"
             )
             # Periodic latest checkpoint save
@@ -367,7 +398,7 @@ def train_surrogate(
                     "num_parameters": total_params,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
-                    "val_loss": epoch_val_mse,
+                    "val_loss": epoch_val_loss,
                     "normalizer": normalizer,
                     "normalizer_mean": normalizer.mean,
                     "normalizer_std": normalizer.std,
@@ -382,7 +413,7 @@ def train_surrogate(
             "preset": preset,
             "num_parameters": total_params,
             "model_state_dict": model.state_dict(),
-            "val_loss": epoch_val_mse,
+            "val_loss": epoch_val_loss,
             "normalizer": normalizer,
             "normalizer_mean": normalizer.mean,
             "normalizer_std": normalizer.std,
@@ -393,10 +424,10 @@ def train_surrogate(
     # Plot loss curves
     fig, ax1 = plt.subplots(figsize=(10, 5))
     plot_epochs = list(range(start_epoch, epochs + 1))
-    ax1.plot(plot_epochs, train_loss_hist, label="Train MSE", color="#1f77b4", lw=2)
-    ax1.plot(plot_epochs, val_loss_hist, label="Val MSE", color="#ff7f0e", lw=2)
+    ax1.plot(plot_epochs, train_loss_hist, label="Train Loss", color="#1f77b4", lw=2)
+    ax1.plot(plot_epochs, val_loss_hist, label="Val Loss", color="#ff7f0e", lw=2)
     ax1.set_xlabel("Epoch", fontweight="bold")
-    ax1.set_ylabel("Normalized Mean Squared Error", fontweight="bold", color="#1f77b4")
+    ax1.set_ylabel("Composite CFD Loss", fontweight="bold", color="#1f77b4")
     ax1.set_yscale("log")
     ax1.grid(True, linestyle="--", alpha=0.5)
 
@@ -448,7 +479,7 @@ def main():
     parser.add_argument("--no-checkpointing", action="store_true", help="Disable gradient checkpointing")
     parser.add_argument("--device", type=str, default=None, choices=["cuda", "cpu"], help="Compute device ('cuda' or 'cpu')")
     parser.add_argument("--throttle-sleep", type=float, default=0.0, help="Thermal throttle delay in seconds per step to prevent GPU overheating (e.g. 0.05)")
-    parser.add_argument("--max-temp", type=int, default=70, help="Maximum GPU temperature before auto-pause (default: 70°C)")
+    parser.add_argument("--max-temp", type=int, default=80, help="Maximum GPU temperature before auto-pause (default: 80°C)")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume training from")
     args = parser.parse_args()
 
