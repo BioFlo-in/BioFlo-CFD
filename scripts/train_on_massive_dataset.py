@@ -242,6 +242,18 @@ def train_surrogate(
         optimizer.zero_grad()
 
         for step_idx, (b_inp, b_tgt) in enumerate(train_loader):
+            # Physical reflection augmentation: with 50% probability, reflect horizontally
+            # By Navier-Stokes reflection symmetry: x -> -x, u -> -u, v -> v, p -> p
+            if np.random.rand() > 0.5:
+                b_inp = b_inp.clone()
+                b_tgt = b_tgt.clone()
+                b_inp[:, 0] = -torch.flip(b_inp[:, 0], dims=[-1])
+                b_inp[:, 1] = torch.flip(b_inp[:, 1], dims=[-1])
+                b_inp[:, 2] = torch.flip(b_inp[:, 2], dims=[-1])
+                b_tgt[:, 0] = -torch.flip(b_tgt[:, 0], dims=[-1])
+                b_tgt[:, 1] = torch.flip(b_tgt[:, 1], dims=[-1])
+                b_tgt[:, 2] = torch.flip(b_tgt[:, 2], dims=[-1])
+
             b_inp = b_inp.to(device)
             b_tgt = b_tgt.to(device)
 

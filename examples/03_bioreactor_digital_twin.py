@@ -125,23 +125,33 @@ def run_ai_bioreactor_rollout(
 
 
 def load_model(ckpt_path: Path, device: torch.device):
-    """Loads model dynamically checking hidden_dim."""
+    """Loads model dynamically checking hidden_dim and preset."""
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    
-    # Determine hidden_dim from lifting weights
     sd = ckpt["model_state_dict"]
-    lifting_weight = sd["lifting.0.weight"]
-    hidden_dim = lifting_weight.shape[0]
 
-    model = HybridCFDNet(
-        in_channels=3,
-        out_channels=3,
-        hidden_dim=hidden_dim,
-        modes1=12,
-        modes2=12,
-        num_layers=2,
-        enforce_boundary=False,
-    ).to(device)
+    if "preset" in ckpt and hasattr(HybridCFDNet, "from_preset"):
+        preset = ckpt["preset"]
+        model = HybridCFDNet.from_preset(
+            preset,
+            in_channels=3,
+            out_channels=3,
+            enforce_boundary=False,
+        ).to(device)
+    else:
+        hidden_dim = sd["lifting.0.weight"].shape[0]
+        w_shape = sd["hybrid_layers.0.spectral_conv.weights1"].shape
+        modes1, modes2 = w_shape[2], w_shape[3]
+        num_layers = len([k for k in sd.keys() if k.endswith(".spectral_conv.weights1")])
+        model = HybridCFDNet(
+            in_channels=3,
+            out_channels=3,
+            hidden_dim=hidden_dim,
+            modes1=modes1,
+            modes2=modes2,
+            num_layers=num_layers,
+            enforce_boundary=False,
+        ).to(device)
+
     model.load_state_dict(sd)
     model.eval()
 

@@ -307,7 +307,19 @@ def test_stirred_tank(model: nn.Module, normalizer: FieldNormalizer, device: tor
         with torch.no_grad():
             x_norm = normalizer.normalize(inp)
             p_norm = model(x_norm)
-            pred = normalizer.denormalize(p_norm).squeeze(0).cpu().numpy()
+            pred1 = normalizer.denormalize(p_norm)
+
+            # Equivariant reflection pass (enforcing physical bilateral symmetry)
+            inp_flip = inp.clone()
+            inp_flip[:, 0] = -torch.flip(inp[:, 0], dims=[-1])
+            inp_flip[:, 1] = torch.flip(inp[:, 1], dims=[-1])
+            inp_flip[:, 2] = torch.flip(inp[:, 2], dims=[-1])
+            pred_f = normalizer.denormalize(model(normalizer.normalize(inp_flip)))
+
+            pred_u = (pred1[0, 0] - torch.flip(pred_f[0, 0], dims=[-1])) * 0.5
+            pred_v = (pred1[0, 1] + torch.flip(pred_f[0, 1], dims=[-1])) * 0.5
+            pred_p = (pred1[0, 2] + torch.flip(pred_f[0, 2], dims=[-1])) * 0.5
+            pred = torch.stack([pred_u, pred_v, pred_p], dim=0).cpu().numpy()
 
         gt = y.numpy()
         preds.append(pred)
