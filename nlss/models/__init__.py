@@ -10,6 +10,14 @@ from .hybrid_cfd_net import (
     HybridOperatorLayer,
     SpatiotemporalTransformerHead,
 )
+from .hybrid_cfd_net_3d import (
+    HybridCFDNet3D,
+    SpectralConv3d,
+    Mesh3DConvBlock,
+    DNN3DInterLayerLinker,
+    compute_divergence_3d,
+    ScaleInvariantRelativeLoss3D,
+)
 
 __all__ = [
     "FNO2d",
@@ -24,4 +32,10 @@ __all__ = [
     "MeshGridGraphBlock",
     "HybridOperatorLayer",
     "SpatiotemporalTransformerHead",
+    "HybridCFDNet3D",
+    "SpectralConv3d",
+    "Mesh3DConvBlock",
+    "DNN3DInterLayerLinker",
+    "compute_divergence_3d",
+    "ScaleInvariantRelativeLoss3D",
 ]
