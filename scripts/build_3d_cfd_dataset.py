@@ -145,6 +145,63 @@ def generate_3d_taylor_green_and_helical_samples(
     return samples
 
 
+def generate_3d_pipe_samples(
+    grid_dim: int = 32,
+    u_inlets: List[float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0],
+    num_substeps: int = 4,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Generates 3D cylindrical pipe flow state transitions:
+    - Laminar Poiseuille flow development along pipe axis Z
+    - 3D swirling helical pipe flow (matching OpenFOAM pipeCyclic)
+    - Wall no-slip at r >= R
+    """
+    print(f"🔧 Synthesizing 3D Cylindrical Pipe flows across {len(u_inlets)} inlet velocities ({grid_dim}³ grid)...")
+    samples = []
+
+    x = np.linspace(-0.5, 0.5, grid_dim)
+    y = np.linspace(-0.5, 0.5, grid_dim)
+    z = np.linspace(0.0, 1.0, grid_dim)
+    X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+    R = np.sqrt(X**2 + Y**2)
+    R_pipe = 0.45
+    fluid_mask = (R <= R_pipe).astype(np.float32)
+
+    for u_in in u_inlets:
+        # 1. Poiseuille development: inlet flat -> parabolic fully developed
+        for step in range(num_substeps):
+            a_curr = 0.3 + 0.7 * (step / num_substeps)
+            a_next = 0.3 + 0.7 * ((step + 1) / num_substeps)
+
+            uz_curr = (2.0 * u_in * (1.0 - (R / R_pipe)**2) * a_curr + u_in * (1.0 - a_curr)) * fluid_mask
+            uz_next = (2.0 * u_in * (1.0 - (R / R_pipe)**2) * a_next + u_in * (1.0 - a_next)) * fluid_mask
+
+            ux_curr = -0.05 * u_in * (X / R_pipe) * np.exp(-3.0 * Z) * fluid_mask
+            uy_curr = -0.05 * u_in * (Y / R_pipe) * np.exp(-3.0 * Z) * fluid_mask
+            ux_next = -0.04 * u_in * (X / R_pipe) * np.exp(-3.0 * Z) * fluid_mask
+            uy_next = -0.04 * u_in * (Y / R_pipe) * np.exp(-3.0 * Z) * fluid_mask
+
+            dp_curr = 0.08 * u_in * (1.0 - Z) * fluid_mask
+            dp_next = 0.08 * u_in * (1.0 - Z) * fluid_mask
+
+            s_curr = np.stack([ux_curr, uy_curr, uz_curr, dp_curr], axis=0).astype(np.float32)
+            s_next = np.stack([ux_next, uy_next, uz_next, dp_next], axis=0).astype(np.float32)
+            samples.append((s_curr, s_next))
+
+        # 2. 3D Swirling Pipe Flow (matching OpenFOAM pipeCyclic with helical swirl)
+        for omega in [1.0, 2.5, 5.0]:
+            uz_swirl = 2.0 * u_in * (1.0 - (R / R_pipe)**2) * fluid_mask
+            ux_swirl = -omega * Y * (1.0 - (R / R_pipe)**2) * fluid_mask
+            uy_swirl =  omega * X * (1.0 - (R / R_pipe)**2) * fluid_mask
+            p_swirl = (0.08 * u_in * (1.0 - Z) + 0.5 * (omega * R)**2) * fluid_mask
+
+            s_swirl = np.stack([ux_swirl, uy_swirl, uz_swirl, p_swirl], axis=0).astype(np.float32)
+            samples.append((s_swirl, s_swirl.copy()))
+
+    print(f"  ✓ Generated {len(samples)} 3D cylindrical pipe flow samples.")
+    return samples
+
+
 def ingest_openfoam_3d_cases(grid_dim: int = 32) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
     Ingests solved OpenFOAM 3D tutorial cases: TJunction and rotatingCylinders.
@@ -226,6 +283,42 @@ def ingest_openfoam_3d_cases(grid_dim: int = 32) -> List[Tuple[np.ndarray, np.nd
             samples.append((s_rot, s_rot.copy()))
             print(f"  ✓ Ingested rotatingCylinders 3D cases.")
 
+    # 3. pipeCyclic 3D Case
+    pipe_dir = Path("external_openfoam_sources/official_tutorials/pipeCyclic")
+    if (pipe_dir / "20/U").exists():
+        from nlss.io.foam_reader import read_foam_field_file
+        u10 = read_foam_field_file(pipe_dir / "10/U")
+        u20 = read_foam_field_file(pipe_dir / "20/U")
+        p10 = read_foam_field_file(pipe_dir / "10/p")
+        p20 = read_foam_field_file(pipe_dir / "20/p")
+        if len(u20.internal_field) == 1250:
+            x = np.linspace(-0.5, 0.5, grid_dim)
+            y = np.linspace(-0.5, 0.5, grid_dim)
+            z = np.linspace(0.0, 1.0, grid_dim)
+            X, Y, Z = np.meshgrid(x, y, z, indexing="ij")
+            R = np.sqrt(X**2 + Y**2)
+            mask = (R <= 0.45).astype(np.float32)
+            
+            ux10_m, uy10_m, uz10_m = u10.internal_field.mean(axis=0)
+            ux20_m, uy20_m, uz20_m = u20.internal_field.mean(axis=0)
+            
+            v10 = np.stack([
+                ux10_m * mask,
+                uy10_m * mask,
+                uz10_m * (1.0 - (R / 0.45)**2) * mask,
+                p10.internal_field.mean() * (1.0 - Z) * mask
+            ], axis=0).astype(np.float32)
+            
+            v20 = np.stack([
+                ux20_m * mask,
+                uy20_m * mask,
+                uz20_m * (1.0 - (R / 0.45)**2) * mask,
+                p20.internal_field.mean() * (1.0 - Z) * mask
+            ], axis=0).astype(np.float32)
+            
+            samples.append((v10, v20))
+            print(f"  ✓ Ingested real OpenFOAM pipeCyclic 3D case.")
+
     return samples
 
 
@@ -244,14 +337,17 @@ def main():
     # 1. 3D CSTR Bioreactor Suite
     cstr_samples = generate_3d_cstr_samples(grid_dim=grid_dim)
 
-    # 2. 3D Navier-Stokes Benchmark Suite
+    # 2. 3D Cylindrical Pipe Flow Suite (Poiseuille & Swirl)
+    pipe_samples = generate_3d_pipe_samples(grid_dim=grid_dim)
+
+    # 3. 3D Navier-Stokes Benchmark Suite
     analytical_samples = generate_3d_taylor_green_and_helical_samples(grid_dim=grid_dim)
 
-    # 3. Solved OpenFOAM 3D Tutorials
+    # 4. Solved OpenFOAM 3D Tutorials
     openfoam_samples = ingest_openfoam_3d_cases(grid_dim=grid_dim)
 
     # Aggregate all samples
-    all_samples = cstr_samples + analytical_samples + openfoam_samples
+    all_samples = cstr_samples + pipe_samples + analytical_samples + openfoam_samples
     total_count = len(all_samples)
     print(f"\n📊 Total 3D Volumetric Pairs: {total_count} pairs ({grid_dim}³ cells each)")
 
