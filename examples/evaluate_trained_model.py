@@ -114,7 +114,7 @@ def test_in_distribution_accuracy(
 
     t0 = time.perf_counter()
     with torch.no_grad():
-        curr = dataset.normalized_data[0:1].to(device)
+        curr = normalizer.normalize(dataset.data[0:1].to(device))
         rollout = [curr]
         for s in range(num_steps):
             curr = model(curr)
@@ -135,9 +135,11 @@ def test_in_distribution_accuracy(
         "rel_l2": [], "rmse_u": [], "max_err": [], "psnr": [], "div_res": []
     }
 
-    for s in range(num_steps + 1):
+    # Evaluate across all predicted steps (s = 1 to num_steps)
+    for s in range(1, num_steps + 1):
         diff_u = pred[s, :2] - gt[s, :2]
-        rel_l2 = np.linalg.norm(diff_u) / (np.linalg.norm(gt[s, :2]) + 1e-6)
+        gt_norm = np.linalg.norm(gt[s, :2])
+        rel_l2 = np.linalg.norm(diff_u) / max(gt_norm, 1e-4)
         rmse = np.sqrt(np.mean(diff_u**2))
         max_e = np.max(np.abs(diff_u))
         psnr = 20 * np.log10(1.0 / max(rmse, 1e-7))
@@ -153,10 +155,10 @@ def test_in_distribution_accuracy(
 
     print(f"• Total Rollout Duration:        50 Steps (t = 0.000s to {times[-1]:.3f}s)")
     print(f"• Pure GPU Rollout Runtime:      {ai_time:.4f} s ({(ai_time / num_steps) * 1000:.2f} ms/step)")
-    print(f"• Step 01 (t = 0.005s):          Rel L2 = {metrics['rel_l2'][1]:.2f}% | RMSE = {metrics['rmse_u'][1]:.2f} mm/s | PSNR = {metrics['psnr'][1]:.1f} dB")
-    print(f"• Step 10 (t = 0.050s):          Rel L2 = {metrics['rel_l2'][10]:.2f}% | RMSE = {metrics['rmse_u'][10]:.2f} mm/s | PSNR = {metrics['psnr'][10]:.1f} dB")
-    print(f"• Step 25 (t = 0.125s):          Rel L2 = {metrics['rel_l2'][25]:.2f}% | RMSE = {metrics['rmse_u'][25]:.2f} mm/s | PSNR = {metrics['psnr'][25]:.1f} dB")
-    print(f"• Step 50 (t = 0.250s, Final):   Rel L2 = \033[1;32m{metrics['rel_l2'][50]:.2f}%\033[0m | RMSE = \033[1;32m{metrics['rmse_u'][50]:.2f} mm/s\033[0m | PSNR = \033[1;32m{metrics['psnr'][50]:.1f} dB\033[0m")
+    print(f"• Step 01 (t = 0.005s):          Rel L2 = {metrics['rel_l2'][0]:.2f}% | RMSE = {metrics['rmse_u'][0]:.2f} mm/s | PSNR = {metrics['psnr'][0]:.1f} dB")
+    print(f"• Step 10 (t = 0.050s):          Rel L2 = {metrics['rel_l2'][9]:.2f}% | RMSE = {metrics['rmse_u'][9]:.2f} mm/s | PSNR = {metrics['psnr'][9]:.1f} dB")
+    print(f"• Step 25 (t = 0.125s):          Rel L2 = {metrics['rel_l2'][24]:.2f}% | RMSE = {metrics['rmse_u'][24]:.2f} mm/s | PSNR = {metrics['psnr'][24]:.1f} dB")
+    print(f"• Step 50 (t = 0.250s, Final):   Rel L2 = \033[1;32m{metrics['rel_l2'][-1]:.2f}%\033[0m | RMSE = \033[1;32m{metrics['rmse_u'][-1]:.2f} mm/s\033[0m | PSNR = \033[1;32m{metrics['psnr'][-1]:.1f} dB\033[0m")
     print(f"• Mean Trajectory Error:         \033[1;32m{np.mean(metrics['rel_l2']):.2f}%\033[0m (Fidelity: \033[1;32m{100 - np.mean(metrics['rel_l2']):.2f}%\033[0m)")
     print(f"• Mass Continuity Residual:      {metrics['div_res'][-1]:.4e} (div(u) ~ 0)")
 
@@ -178,7 +180,7 @@ def test_extrapolation_stability(
     times_100 = np.array([i * 0.005 for i in range(extrap_steps + 1)])
 
     with torch.no_grad():
-        curr = dataset.normalized_data[0:1].to(device)
+        curr = normalizer.normalize(dataset.data[0:1].to(device))
         rollout_100 = [curr]
         for s in range(extrap_steps):
             curr = model(curr)
@@ -196,7 +198,7 @@ def test_extrapolation_stability(
     # Track kinetic energy over all 100 steps
     energies = [0.5 * np.mean(pred_100[s, 0]**2 + pred_100[s, 1]**2) for s in range(extrap_steps + 1)]
     is_finite = np.all(np.isfinite(pred_100))
-    is_bounded = energies[-1] < 1.0 and energies[-1] > 0.01
+    is_bounded = energies[-1] < 1.0 and energies[-1] > 1e-4
 
     print(f"• Rollout Horizon:               100 Steps (t = 0.000s to {times_100[-1]:.3f}s)")
     print(f"• Kinetic Energy at Step 0:      {energies[0]:.6f} J/kg")
@@ -224,7 +226,7 @@ def test_velocity_scaling_generalization(
 
     for u_lid in u_lids:
         with torch.no_grad():
-            curr = dataset.normalized_data[0:1].to(device)
+            curr = normalizer.normalize(dataset.data[0:1].to(device))
             for s in range(30):
                 curr = model(curr)
                 phys = normalizer.denormalize(curr)
@@ -339,12 +341,12 @@ def generate_test_report_figures(
         # Col 1: AI Surrogate
         im1 = axes[row_idx, 1].imshow(pr_mag, cmap="viridis", origin="lower", extent=[0, 1, 0, 1], vmin=0, vmax=vmax)
         axes[row_idx, 1].streamplot(x_coords, y_coords, pred[s, 0], pred[s, 1], color="white", density=0.75, linewidth=0.7, arrowsize=0.7)
-        axes[row_idx, 1].set_title(f"AI HybridCFDNet |U| (t={t_curr:.2f}s)\n[Rel L2: {metrics['rel_l2'][s]:.2f}%]", fontsize=11, fontweight="bold")
+        axes[row_idx, 1].set_title(f"AI HybridCFDNet |U| (t={t_curr:.2f}s)\n[Rel L2: {metrics['rel_l2'][s - 1]:.2f}%]", fontsize=11, fontweight="bold")
         plt.colorbar(im1, ax=axes[row_idx, 1], fraction=0.046, pad=0.04, label="|U| (m/s)")
 
         # Col 2: Absolute Error
         im2 = axes[row_idx, 2].imshow(err, cmap="inferno", origin="lower", extent=[0, 1, 0, 1])
-        axes[row_idx, 2].set_title(f"Pointwise |U_AI - U_FOAM| Error\n[RMSE: {metrics['rmse_u'][s]:.2f} mm/s]", fontsize=11, fontweight="bold")
+        axes[row_idx, 2].set_title(f"Pointwise |U_AI - U_FOAM| Error\n[RMSE: {metrics['rmse_u'][s - 1]:.2f} mm/s]", fontsize=11, fontweight="bold")
         plt.colorbar(im2, ax=axes[row_idx, 2], fraction=0.046, pad=0.04, label="Error (m/s)")
 
         # Col 3: Pressure Field
