@@ -27,6 +27,14 @@ from .neural_pod_operator_3d import (
     NeuralPODOperator3D,
     FourierFeatureEmbedding,
 )
+from .learned_evolution_operator import (
+    LerayProjection3D,
+    FiLMLayer,
+    ResNetBlockFiLM,
+    AutoregressiveStateEvolutionOperator,
+    LearnedNumericalEvolutionEngine,
+    MultiStepRolloutLoss,
+)
 
 __all__ = [
     "FNO2d",
@@ -52,4 +60,10 @@ __all__ = [
     "diff_dim",
     "NeuralPODOperator3D",
     "FourierFeatureEmbedding",
+    "LerayProjection3D",
+    "FiLMLayer",
+    "ResNetBlockFiLM",
+    "AutoregressiveStateEvolutionOperator",
+    "LearnedNumericalEvolutionEngine",
+    "MultiStepRolloutLoss",
 ]
