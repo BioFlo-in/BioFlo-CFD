@@ -1,0 +1,53 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2406                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      topoSetDict;
+}
+
+actions
+(
+    // 1. Lower Rushton MRF Zone
+    {
+        name    mrfZone_lower_cells;
+        type    cellSet;
+        action  new;
+        source  cylinderToCell;
+        p1      (0 0 0.50);
+        p2      (0 0 1.10);
+        radius  0.45;
+    }
+    {
+        name    mrfZone_lower;
+        type    cellZoneSet;
+        action  new;
+        source  setToCellZone;
+        set     mrfZone_lower_cells;
+    }
+
+    // 2. Upper Pitched-Blade Turbine MRF Zone
+    {
+        name    mrfZone_upper_cells;
+        type    cellSet;
+        action  new;
+        source  cylinderToCell;
+        p1      (0 0 2.50);
+        p2      (0 0 3.10);
+        radius  0.45;
+    }
+    {
+        name    mrfZone_upper;
+        type    cellZoneSet;
+        action  new;
+        source  setToCellZone;
+        set     mrfZone_upper_cells;
+    }
+);

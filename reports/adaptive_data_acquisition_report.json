@@ -1,0 +1,326 @@
+{
+  "title": "BioFlo-CFD: NLSS Adaptive Data Acquisition & Operating Regime Report",
+  "standard": "NLSS v1.1 Architecture Planning Standard",
+  "dataset_summary": {
+    "total_snapshots": 210,
+    "unique_conditions": 5,
+    "active_fluid_voxels": 22016,
+    "velocity_dofs": 66048,
+    "shannon_entropy_bits": 1.779,
+    "max_possible_entropy_bits": 2.322,
+    "entropy_ratio": 0.766,
+    "snapshot_distribution": {
+      "300 RPM (nu=1.0e-06)": 121,
+      "120 RPM (nu=1.0e-06)": 24,
+      "450 RPM (nu=1.0e-06)": 18,
+      "600 RPM (nu=1.0e-06)": 11,
+      "300 RPM (nu=1.0e-05)": 36
+    },
+    "duration_distribution_s": {
+      "300 RPM (nu=1.0e-06)": 4.95,
+      "120 RPM (nu=1.0e-06)": 1.15,
+      "450 RPM (nu=1.0e-06)": 0.85,
+      "600 RPM (nu=1.0e-06)": 0.5,
+      "300 RPM (nu=1.0e-05)": 1.75
+    }
+  },
+  "condition_kinematics": {
+    "mean_speeds_m_s": {
+      "120": 0.4663,
+      "300": 0.5035,
+      "450": 1.5412,
+      "600": 1.8978,
+      "300_viscous": 1.0843
+    },
+    "mean_kinetic_energy_j_m3": {
+      "120": 102.9,
+      "300": 79.39,
+      "450": 559.73,
+      "600": 852.87,
+      "300_viscous": 286.17
+    }
+  },
+  "flow_field_distances": {
+    "120": {
+      "120": 0.0,
+      "300": 0.428889662027359,
+      "450": 1.0401731729507446,
+      "600": 1.196424961090088
+    },
+    "300": {
+      "120": 0.428889662027359,
+      "300": 0.0,
+      "450": 1.2396600246429443,
+      "600": 1.37090003490448
+    },
+    "450": {
+      "120": 1.0401731729507446,
+      "300": 1.2396600246429443,
+      "450": 0.0,
+      "600": 0.2554304897785187
+    },
+    "600": {
+      "120": 1.196424961090088,
+      "300": 1.37090003490448,
+      "450": 0.2554304897785187,
+      "600": 0.0
+    }
+  },
+  "vector_alignments_cos": {
+    "120": {
+      "120": 1.0000001192092896,
+      "300": 0.9160771369934082,
+      "450": 0.7366237640380859,
+      "600": 0.6780309677124023
+    },
+    "300": {
+      "120": 0.9160771369934082,
+      "300": 1.0000001192092896,
+      "450": 0.5493698716163635,
+      "600": 0.4798922836780548
+    },
+    "450": {
+      "120": 0.7366237640380859,
+      "300": 0.5493698716163635,
+      "450": 1.0,
+      "600": 0.989279568195343
+    },
+    "600": {
+      "120": 0.6780309677124023,
+      "300": 0.4798922836780548,
+      "450": 0.989279568195343,
+      "600": 0.9999999403953552
+    }
+  },
+  "subspace_principal_angles_deg": {
+    "120": {
+      "120": 0.19583526253700256,
+      "300": 74.29820251464844,
+      "450": 46.346675872802734,
+      "600": 48.958683013916016
+    },
+    "300": {
+      "120": 74.29820251464844,
+      "300": 0.13988231122493744,
+      "450": 77.13438415527344,
+      "600": 79.48626708984375
+    },
+    "450": {
+      "120": 46.346675872802734,
+      "300": 77.13438415527344,
+      "450": 0.1724584996700287,
+      "600": 6.377227783203125
+    },
+    "600": {
+      "120": 48.958683013916016,
+      "300": 79.48626708984375,
+      "450": 6.377227783203125,
+      "600": 0.2762455940246582
+    }
+  },
+  "regional_roi_displacements": {
+    "impeller_discharge": {
+      "120->300": {
+        "relative_l2_displacement": 0.7397624228810803,
+        "angular_rotation_deg": 42.46251043676644
+      },
+      "300->450": {
+        "relative_l2_displacement": 9.988748206834828,
+        "angular_rotation_deg": 52.81022665905845
+      },
+      "450->600": {
+        "relative_l2_displacement": 0.3168111346932985,
+        "angular_rotation_deg": 10.073085671739586
+      }
+    },
+    "wall_baffles": {
+      "120->300": {
+        "relative_l2_displacement": 0.25290539516715693,
+        "angular_rotation_deg": 41.24798048989638
+      },
+      "300->450": {
+        "relative_l2_displacement": 1.2131499472806841,
+        "angular_rotation_deg": 43.1370056746511
+      },
+      "450->600": {
+        "relative_l2_displacement": 0.241511194414601,
+        "angular_rotation_deg": 7.346824526429066
+      }
+    },
+    "dished_bottom": {
+      "120->300": {
+        "relative_l2_displacement": 0.2843237017898828,
+        "angular_rotation_deg": 29.29797712706102
+      },
+      "300->450": {
+        "relative_l2_displacement": 1.5795719258518144,
+        "angular_rotation_deg": 29.25692116535496
+      },
+      "450->600": {
+        "relative_l2_displacement": 0.2849106975655128,
+        "angular_rotation_deg": 7.898711473989806
+      }
+    },
+    "free_surface": {
+      "120->300": {
+        "relative_l2_displacement": 0.7335072285167837,
+        "angular_rotation_deg": 44.16288823655945
+      },
+      "300->450": {
+        "relative_l2_displacement": 6.220380994514609,
+        "angular_rotation_deg": 49.214315580676036
+      },
+      "450->600": {
+        "relative_l2_displacement": 0.30501514874306646,
+        "angular_rotation_deg": 9.183525287779316
+      }
+    },
+    "bulk_recirculation": {
+      "120->300": {
+        "relative_l2_displacement": 0.5483743044418792,
+        "angular_rotation_deg": 44.919713553244236
+      },
+      "300->450": {
+        "relative_l2_displacement": 3.446983052510844,
+        "angular_rotation_deg": 54.607557777627385
+      },
+      "450->600": {
+        "relative_l2_displacement": 0.2991299591427211,
+        "angular_rotation_deg": 8.723028037976704
+      }
+    }
+  },
+  "candidate_regime_transitions": {
+    "120_to_300_RPM": {
+      "delta_rpm": 180,
+      "field_distance": 0.428889662027359,
+      "rate_per_rpm": 0.002382720344596439
+    },
+    "300_to_450_RPM": {
+      "delta_rpm": 150,
+      "field_distance": 1.2396600246429443,
+      "rate_per_rpm": 0.008264400164286296
+    },
+    "450_to_600_RPM": {
+      "delta_rpm": 150,
+      "field_distance": 0.2554304897785187,
+      "rate_per_rpm": 0.0017028699318567913
+    }
+  },
+  "ranked_missing_operating_conditions": [
+    {
+      "rpm": 425,
+      "regime": "Critical Acceleration Jet Inception",
+      "distance_to_nearest_anchor_rpm": 125,
+      "subspace_principal_angle_deg": 77.13438415527344,
+      "zone_importance_weight": 2.5,
+      "information_gain_score": 221.34,
+      "priority": "P0 (Critical)"
+    },
+    {
+      "rpm": 400,
+      "regime": "Critical Acceleration Jet Inception",
+      "distance_to_nearest_anchor_rpm": 100,
+      "subspace_principal_angle_deg": 77.13438415527344,
+      "zone_importance_weight": 2.5,
+      "information_gain_score": 177.07,
+      "priority": "P0 (Critical)"
+    },
+    {
+      "rpm": 375,
+      "regime": "Critical Acceleration Jet Inception",
+      "distance_to_nearest_anchor_rpm": 75,
+      "subspace_principal_angle_deg": 77.13438415527344,
+      "zone_importance_weight": 2.5,
+      "information_gain_score": 132.81,
+      "priority": "P0 (Critical)"
+    },
+    {
+      "rpm": 350,
+      "regime": "Critical Acceleration Jet Inception",
+      "distance_to_nearest_anchor_rpm": 50,
+      "subspace_principal_angle_deg": 77.13438415527344,
+      "zone_importance_weight": 2.5,
+      "information_gain_score": 88.54,
+      "priority": "P0 (Critical)"
+    },
+    {
+      "rpm": 180,
+      "regime": "Deceleration-to-Steady Transition",
+      "distance_to_nearest_anchor_rpm": 60,
+      "subspace_principal_angle_deg": 74.29820251464844,
+      "zone_importance_weight": 1.0,
+      "information_gain_score": 11.8,
+      "priority": "P2 (Moderate)"
+    },
+    {
+      "rpm": 240,
+      "regime": "Deceleration-to-Steady Transition",
+      "distance_to_nearest_anchor_rpm": 60,
+      "subspace_principal_angle_deg": 74.29820251464844,
+      "zone_importance_weight": 1.0,
+      "information_gain_score": 11.8,
+      "priority": "P2 (Moderate)"
+    },
+    {
+      "rpm": 475,
+      "regime": "High-Intensity Shear Dispersion",
+      "distance_to_nearest_anchor_rpm": 125,
+      "subspace_principal_angle_deg": 6.377227783203125,
+      "zone_importance_weight": 2.5,
+      "information_gain_score": 3.77,
+      "priority": "P2 (Moderate)"
+    },
+    {
+      "rpm": 500,
+      "regime": "High-Intensity Shear Dispersion",
+      "distance_to_nearest_anchor_rpm": 100,
+      "subspace_principal_angle_deg": 6.377227783203125,
+      "zone_importance_weight": 1.0,
+      "information_gain_score": 1.21,
+      "priority": "P2 (Moderate)"
+    },
+    {
+      "rpm": 550,
+      "regime": "High-Intensity Shear Dispersion",
+      "distance_to_nearest_anchor_rpm": 50,
+      "subspace_principal_angle_deg": 6.377227783203125,
+      "zone_importance_weight": 1.0,
+      "information_gain_score": 0.6,
+      "priority": "P2 (Moderate)"
+    }
+  ],
+  "prioritized_simulation_schedule": [
+    {
+      "stage": "Stage 1: Transition-Region Boundary Refinement",
+      "recommended_rpms": [
+        375,
+        425,
+        350
+      ],
+      "purpose": "Resolve the sharp 300->450 RPM acceleration jet transition and anchor local POD",
+      "cfd_cost_core_hours": 18.0,
+      "expected_tier_c_reduction_rel_l2": "12.0 - 15.0 percentage points"
+    },
+    {
+      "stage": "Stage 2: Mid-Range Deceleration & Intermediate Anchor",
+      "recommended_rpms": [
+        240,
+        500
+      ],
+      "purpose": "Bisect 120->300 deceleration gap and 450->600 turbulent dissipation plateau",
+      "cfd_cost_core_hours": 12.0,
+      "expected_tier_c_reduction_rel_l2": "6.0 - 8.0 percentage points"
+    },
+    {
+      "stage": "Stage 3: Boundary Outer Envelopes & Dynamic Reversibility",
+      "recommended_rpms": [
+        180,
+        550
+      ],
+      "purpose": "Validate outer convex hull stability and non-linear hysteresis check",
+      "cfd_cost_core_hours": 12.0,
+      "expected_tier_c_reduction_rel_l2": "3.0 - 5.0 percentage points"
+    }
+  ]
+}

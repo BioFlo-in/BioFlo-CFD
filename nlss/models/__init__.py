@@ -18,6 +18,15 @@ from .hybrid_cfd_net_3d import (
     compute_divergence_3d,
     ScaleInvariantRelativeLoss3D,
 )
+from .cylindrical_cfd_net_3d import (
+    BioFloCylindricalNet3D,
+    ExactCurlVelocityDecoder,
+    diff_dim,
+)
+from .neural_pod_operator_3d import (
+    NeuralPODOperator3D,
+    FourierFeatureEmbedding,
+)
 
 __all__ = [
     "FNO2d",
@@ -38,4 +47,9 @@ __all__ = [
     "DNN3DInterLayerLinker",
     "compute_divergence_3d",
     "ScaleInvariantRelativeLoss3D",
+    "BioFloCylindricalNet3D",
+    "ExactCurlVelocityDecoder",
+    "diff_dim",
+    "NeuralPODOperator3D",
+    "FourierFeatureEmbedding",
 ]

@@ -1,0 +1,194 @@
+{
+  "title": "BioFlo-CFD: Scientific Verification & Performance Audit Report",
+  "condition_label": "3D CSTR Held-Out Verification (Re=28,400, 300 RPM)",
+  "timestamp": "2026-11-23 13:24:02 UTC",
+  "model_metadata": {
+    "model_name": "BioFlo-NeuralPODOperator3D",
+    "is_calibrated": true,
+    "n_modes": 55,
+    "param_dim": 1,
+    "hidden_dim": 256,
+    "num_layers": 4,
+    "total_trainable_parameters": 220215,
+    "device": "cuda:0",
+    "spatial_dof": 566784,
+    "has_param_bounds": true
+  },
+  "parameter_domain": {
+    "is_in_domain": true,
+    "domain_status": "interpolation",
+    "confidence": "high",
+    "confidence_score": 0.9631944177208217,
+    "nearest_training_distance_norm": 0.012500000000000011,
+    "nearest_training_param": [
+      1.15
+    ],
+    "parameter_bounds_min": [
+      1.0
+    ],
+    "parameter_bounds_max": [
+      5.0
+    ]
+  },
+  "three_tier_hierarchy": {
+    "tier_a_pod_reconstruction": {
+      "rel_l2_error": 0.09775369861888392,
+      "reconstruction_accuracy_pct": 90.2246301381116,
+      "r2_score": 0.9902324506420439,
+      "description": "Optimal orthogonal projection limit (information truncation loss)"
+    },
+    "tier_b_neural_prediction": {
+      "rel_l2_error": 0.49075232328109425,
+      "prediction_accuracy_pct": 50.92476767189058,
+      "r2_score": 0.7538250001729322,
+      "modal_amplitude_rel_l2": 1.2627986357768999,
+      "description": "Neural mode decoupling accuracy on held-out temporal snapshots"
+    }
+  },
+  "global_velocity_metrics": {
+    "global_rel_l2": 0.49075232328109425,
+    "global_rel_l1": 0.7696124801744422,
+    "global_rel_linf": 0.6393253833943456,
+    "global_r2": 0.7538250001729322,
+    "rmse": 0.3236784929137449,
+    "mae": 0.21142603633104118,
+    "components": {
+      "ux": {
+        "rel_l2": 1.0551035157509303,
+        "rel_l1": 1.1644368799154345,
+        "rel_linf": 0.8466195109770622,
+        "rmse": 0.21917811259542333,
+        "mae": 0.16973246971610934,
+        "r2": -0.45489315821135734
+      },
+      "uy": {
+        "rel_l2": 1.1386883121624554,
+        "rel_l1": 1.1902311180444751,
+        "rel_linf": 0.8788606983837601,
+        "rmse": 0.18296355840886,
+        "mae": 0.13586447632405907,
+        "r2": -0.7611301914378164
+      },
+      "uz": {
+        "rel_l2": 1.1206787544990393,
+        "rel_l1": 1.1920785802382285,
+        "rel_linf": 0.8913638018042879,
+        "rmse": 0.16624203512151559,
+        "mae": 0.11931329919025302,
+        "r2": -0.6871242485151599
+      },
+      "magnitude": {
+        "rel_l2": 1.0008908474600695,
+        "rel_l1": 0.9547344150058804,
+        "rel_linf": 0.8595335375186676,
+        "rmse": 0.30188939115715135,
+        "mae": 0.20537368910977655,
+        "r2": -1.038754908266457
+      }
+    },
+    "angular_alignment": {
+      "mean_cos_theta": 0.29405602185926294,
+      "mean_angle_deg": 65.53796046370401,
+      "max_angle_deg": 172.36580100669292,
+      "p95_angle_deg": 169.11845857714556
+    }
+  },
+  "regional_roi_metrics": {
+    "impeller_discharge": {
+      "rel_l2_error": 1.3463882452980616,
+      "rel_l1_error": 1.3468060842771084,
+      "rel_linf_error": 1.1506374529147698,
+      "rmse": 0.28795561609824094,
+      "mean_angle_deg": 73.1609272391145
+    },
+    "wall_baffles": {
+      "rel_l2_error": 0.40736411491893304,
+      "rel_l1_error": 0.6735008658894474,
+      "rel_linf_error": 0.3242029391632785,
+      "rmse": 0.40417909854316764,
+      "mean_angle_deg": 60.644125803185034
+    },
+    "dished_bottom": {
+      "rel_l2_error": 0.4420121715842692,
+      "rel_l1_error": 0.7589317227803319,
+      "rel_linf_error": 0.3052600926425406,
+      "rmse": 0.38791101401646605,
+      "mean_angle_deg": 55.839435517286496
+    },
+    "free_surface": {
+      "rel_l2_error": 1.132970666821914,
+      "rel_l1_error": 1.1149067284239567,
+      "rel_linf_error": 1.2119636718958318,
+      "rmse": 0.3478823732414919,
+      "mean_angle_deg": 70.10728281118271
+    },
+    "bulk_recirculation": {
+      "rel_l2_error": 0.5818518705674619,
+      "rel_l1_error": 0.9447324911753976,
+      "rel_linf_error": 0.3844969490615165,
+      "rmse": 0.3578738769942751,
+      "mean_angle_deg": 62.24974549326996
+    }
+  },
+  "physics_residuals": {
+    "mean_abs_divergence": 7.492413063749487,
+    "max_abs_divergence": 345.63666343688965,
+    "vorticity_rel_l2_error": 0.5371215309354219,
+    "vorticity_rmse": 16.93538187396466,
+    "momentum_relative_residual": 0.9775820553824955,
+    "momentum_residual_norm": 841184.1936386724
+  },
+  "inference_performance": {
+    "device": "cuda:0",
+    "single_snapshot_latency_ms": 1.3625602199999776,
+    "single_snapshot_p95_ms": 1.3940734999493998,
+    "cfd_speedup_factor": 12109.556514053167,
+    "batches": {
+      "batch_1": {
+        "batch_size": 1,
+        "mean_latency_ms": 1.3625602199999776,
+        "latency_per_snapshot_ms": 1.3625602199999776,
+        "median_latency_ms": 1.356059500039919,
+        "p95_latency_ms": 1.3940734999493998,
+        "p99_latency_ms": 1.462039089999507,
+        "min_latency_ms": 1.3373350000165374,
+        "max_latency_ms": 1.49264399999538,
+        "throughput_snapshots_per_sec": 733.9125165418498,
+        "openfoam_baseline_sec": 16.5,
+        "cfd_speedup_factor": 12109.556514053167,
+        "gpu_allocated_mb": 132.208984375,
+        "gpu_reserved_mb": 214.0
+      },
+      "batch_4": {
+        "batch_size": 4,
+        "mean_latency_ms": 1.6384705599966765,
+        "latency_per_snapshot_ms": 0.4096176399991691,
+        "median_latency_ms": 1.622125999972468,
+        "p95_latency_ms": 1.7283683500238567,
+        "p99_latency_ms": 1.8131950000110917,
+        "min_latency_ms": 1.5880099999776576,
+        "max_latency_ms": 1.875082000083239,
+        "throughput_snapshots_per_sec": 2441.301111939487,
+        "openfoam_baseline_sec": 16.5,
+        "cfd_speedup_factor": 40281.46824866234,
+        "gpu_allocated_mb": 138.6953125,
+        "gpu_reserved_mb": 214.0
+      },
+      "batch_16": {
+        "batch_size": 16,
+        "mean_latency_ms": 2.163765739996961,
+        "latency_per_snapshot_ms": 0.13523535874981008,
+        "median_latency_ms": 2.1472180000046137,
+        "p95_latency_ms": 2.253688650046115,
+        "p99_latency_ms": 2.364823380023608,
+        "min_latency_ms": 2.1008479999409246,
+        "max_latency_ms": 2.4634790000845896,
+        "throughput_snapshots_per_sec": 7394.515822226888,
+        "openfoam_baseline_sec": 16.5,
+        "cfd_speedup_factor": 122009.51016454241,
+        "gpu_allocated_mb": 164.640625,
+        "gpu_reserved_mb": 214.0
+      }
+    }
+  }
+}

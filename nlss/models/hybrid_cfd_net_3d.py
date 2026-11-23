@@ -206,14 +206,31 @@ class HybridCFDNet3D(nn.Module):
             h = F.gelu(norm(h + f_out))
 
         delta = self.projection(h)
-        return x + delta  # Residual update
+        if self.in_channels == self.out_channels:
+            return x + delta  # Direct residual update
+        elif self.in_channels > self.out_channels:
+            return x[:, :self.out_channels] + delta  # Slice excess channels
+        else:
+            # in_channels < out_channels: zero-pad extra channels to match delta shape
+            pad = torch.zeros(
+                (x.shape[0], self.out_channels - self.in_channels, *x.shape[2:]),
+                dtype=x.dtype,
+                device=x.device,
+            )
+            return torch.cat([x, pad], dim=1) + delta
 
 
-def compute_divergence_3d(u: torch.Tensor, dx: float = 1.0, dy: float = 1.0, dz: float = 1.0) -> torch.Tensor:
+def compute_divergence_3d(
+    u: torch.Tensor,
+    dx: float = 1.0,
+    dy: float = 1.0,
+    dz: float = 1.0,
+) -> torch.Tensor:
     """
-    Computes 3D discrete mass continuity residual:
+    Computes 3D discrete mass continuity residual with physical anisotropic spacing and boundary derivatives:
       div_3d(u) = du/dx + dv/dy + dw/dz
     u shape: (B, 3, D, H, W) where components are (ux, uy, uz)
+    Axes: D is z (axis 2), H is y (axis 3), W is x (axis 4)
     """
     ux = u[:, 0]
     uy = u[:, 1]
@@ -223,9 +240,20 @@ def compute_divergence_3d(u: torch.Tensor, dx: float = 1.0, dy: float = 1.0, dz:
     dv_dy = torch.zeros_like(uy)
     dw_dz = torch.zeros_like(uz)
 
+    # Interior: Second-order central differences
     du_dx[:, :, :, 1:-1] = (ux[:, :, :, 2:] - ux[:, :, :, :-2]) / (2.0 * dx)
     dv_dy[:, :, 1:-1, :] = (uy[:, :, 2:, :] - uy[:, :, :-2, :]) / (2.0 * dy)
     dw_dz[:, 1:-1, :, :] = (uz[:, 2:, :, :] - uz[:, :-2, :, :]) / (2.0 * dz)
+
+    # Boundaries: Non-zero physical one-sided forward and backward differences
+    du_dx[:, :, :, 0] = (ux[:, :, :, 1] - ux[:, :, :, 0]) / dx
+    du_dx[:, :, :, -1] = (ux[:, :, :, -1] - ux[:, :, :, -2]) / dx
+
+    dv_dy[:, :, 0, :] = (uy[:, :, 1, :] - uy[:, :, 0, :]) / dy
+    dv_dy[:, :, -1, :] = (uy[:, :, -1, :] - uy[:, :, -2, :]) / dy
+
+    dw_dz[:, 0, :, :] = (uz[:, 1, :, :] - uz[:, 0, :, :]) / dz
+    dw_dz[:, -1, :, :] = (uz[:, -1, :, :] - uz[:, -2, :, :]) / dz
 
     return du_dx + dv_dy + dw_dz
 
@@ -234,14 +262,32 @@ class ScaleInvariantRelativeLoss3D(nn.Module):
     """
     Scale-Invariant Multi-Channel Relative L2 Loss + 3D Mass Continuity Penalty.
     Ensures high-speed jets and low-speed recirculation zones receive uniform gradient magnitude.
+    Supports physical anisotropic grid spacings (dx, dy, dz).
     """
 
-    def __init__(self, eps: float = 1e-4, div_weight: float = 0.05):
+    def __init__(
+        self,
+        eps: float = 1e-4,
+        div_weight: float = 0.05,
+        dx: float = 1.0,
+        dy: float = 1.0,
+        dz: float = 1.0,
+    ):
         super().__init__()
         self.eps = eps
         self.div_weight = div_weight
+        self.dx = float(dx)
+        self.dy = float(dy)
+        self.dz = float(dz)
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, float]]:
+    def forward(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        dx: Optional[float] = None,
+        dy: Optional[float] = None,
+        dz: Optional[float] = None,
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
         # pred, target: (B, 4, D, H, W) -> [ux, uy, uz, p]
         pred_vel = pred[:, :3]
         targ_vel = target[:, :3]
@@ -258,8 +304,11 @@ class ScaleInvariantRelativeLoss3D(nn.Module):
         p_base = torch.norm(targ_p, p=2, dim=(1, 2, 3, 4)) + self.eps
         loss_p = torch.mean(p_diff / p_base)
 
-        # 3D Incompressibility constraint div(u) ~ 0
-        div_pred = compute_divergence_3d(pred_vel)
+        # 3D Incompressibility constraint div(u) ~ 0 with physical anisotropic grid spacing
+        cur_dx = float(dx) if dx is not None else self.dx
+        cur_dy = float(dy) if dy is not None else self.dy
+        cur_dz = float(dz) if dz is not None else self.dz
+        div_pred = compute_divergence_3d(pred_vel, dx=cur_dx, dy=cur_dy, dz=cur_dz)
         loss_div = torch.mean(torch.abs(div_pred))
 
         total_loss = loss_vel + 0.5 * loss_p + self.div_weight * loss_div

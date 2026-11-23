@@ -1,0 +1,219 @@
+{
+  "title": "BioFlo-CFD: Scientific Verification & Performance Audit Report",
+  "condition_label": "Tier C Unseen Operating Condition: 450 RPM (Balanced Step-Response)",
+  "timestamp": "2026-11-23 18:54:18 UTC",
+  "model_metadata": {
+    "model_name": "BioFlo-NeuralPODOperator3D",
+    "is_calibrated": true,
+    "n_modes": 20,
+    "param_dim": 2,
+    "hidden_dim": 128,
+    "num_layers": 4,
+    "total_trainable_parameters": 60692,
+    "device": "cuda:0",
+    "spatial_dof": 66048,
+    "has_param_bounds": true
+  },
+  "parameter_domain": {
+    "is_in_domain": true,
+    "domain_status": "interpolation",
+    "confidence": "medium",
+    "confidence_score": 0.391605626676799,
+    "nearest_training_distance_norm": 0.3125,
+    "nearest_training_param": [
+      0.0,
+      300.0
+    ],
+    "parameter_bounds_min": [
+      0.0,
+      120.0
+    ],
+    "parameter_bounds_max": [
+      0.5,
+      600.0
+    ]
+  },
+  "three_tier_hierarchy": {
+    "tier_a_pod_reconstruction": {
+      "rel_l2_error": 0.20411512568166562,
+      "reconstruction_accuracy_pct": 79.58848743183344,
+      "r2_score": 0.9581311117621256,
+      "description": "Optimal orthogonal projection limit (information truncation loss)"
+    },
+    "tier_b_neural_prediction": {
+      "rel_l2_error": 0.6235251998023983,
+      "prediction_accuracy_pct": 37.647480019760174,
+      "r2_score": 0.609294907427629,
+      "modal_amplitude_rel_l2": 1.0273136458638075,
+      "description": "Neural mode decoupling accuracy on held-out temporal snapshots"
+    },
+    "tier_c_cfd_generalization": {
+      "rel_l2_error": 0.6235251998023983,
+      "generalization_accuracy_pct": 37.647480019760174,
+      "r2_score": 0.609294907427629,
+      "modal_amplitude_rel_l2": 1.0273136458638075,
+      "description": "True out-of-sample CFD generalization on unseen operating condition"
+    }
+  },
+  "global_velocity_metrics": {
+    "global_rel_l2": 0.6235251998023983,
+    "global_rel_l1": 0.6174813761641037,
+    "global_rel_linf": 0.7902954769492778,
+    "global_r2": 0.609294907427629,
+    "rmse": 0.6808992463666631,
+    "mae": 0.4125562636375081,
+    "components": {
+      "ux": {
+        "rel_l2": 0.6766897520348302,
+        "rel_l1": 0.6145242766582052,
+        "rel_linf": 0.7489519101813804,
+        "rmse": 0.2218150315746337,
+        "mae": 0.17106058761816134,
+        "r2": -0.6420700344678083
+      },
+      "uy": {
+        "rel_l2": 0.9407044671161574,
+        "rel_l1": 0.9352898747120331,
+        "rel_linf": 0.8906361406063972,
+        "rmse": 0.3436718017256863,
+        "mae": 0.2393215208907019,
+        "r2": -0.06682541830316047
+      },
+      "uz": {
+        "rel_l2": 2.065067721149901,
+        "rel_l1": 1.8318827288601243,
+        "rel_linf": 2.2882549680956044,
+        "rmse": 0.36522042544228417,
+        "mae": 0.2416242499073798,
+        "r2": -3.6453827430139683
+      },
+      "magnitude": {
+        "rel_l2": 0.6407503826797496,
+        "rel_l1": 0.5629251350504754,
+        "rel_linf": 0.7846758966948247,
+        "rmse": 0.3342952479638045,
+        "mae": 0.2556568630394439,
+        "r2": -0.6948438368878973
+      }
+    },
+    "angular_alignment": {
+      "mean_cos_theta": 0.45279154216470513,
+      "mean_angle_deg": 58.55799421973115,
+      "max_angle_deg": 117.24743208879099,
+      "p95_angle_deg": 114.86017863988377
+    }
+  },
+  "regional_roi_metrics": {
+    "impeller_discharge": {
+      "rel_l2_error": 0.7867836625440037,
+      "rel_l1_error": 0.7845959340552262,
+      "rel_linf_error": 0.7655283597395335,
+      "rmse": 0.7512203164674824,
+      "mean_angle_deg": 30.746540213369588
+    },
+    "wall_baffles": {
+      "rel_l2_error": 0.5629905124595762,
+      "rel_l1_error": 0.5742978138675479,
+      "rel_linf_error": 0.6287567576308173,
+      "rmse": 0.7188164025575177,
+      "mean_angle_deg": 28.83871381024224
+    },
+    "dished_bottom": {
+      "rel_l2_error": 0.6283582557112696,
+      "rel_l1_error": 0.6730563308400084,
+      "rel_linf_error": 0.7590295043008743,
+      "rmse": 0.669926352599904,
+      "mean_angle_deg": 29.013697268947062
+    },
+    "free_surface": {
+      "rel_l2_error": 0.7754945082434366,
+      "rel_l1_error": 0.7531579265303101,
+      "rel_linf_error": 0.6196096223301343,
+      "rmse": 0.6876025975275787,
+      "mean_angle_deg": 32.26057249108247
+    },
+    "bulk_recirculation": {
+      "rel_l2_error": 0.6748181758224561,
+      "rel_l1_error": 0.6976664824670158,
+      "rel_linf_error": 0.5904933335529086,
+      "rmse": 0.6208409467773751,
+      "mean_angle_deg": 30.250433389303375
+    }
+  },
+  "physics_residuals": {
+    "mean_abs_divergence": 10.274549821107772,
+    "max_abs_divergence": 223.12670898085634,
+    "vorticity_rel_l2_error": 0.7016270340826255,
+    "vorticity_rmse": 23.81933907585977
+  },
+  "bioprocess_engineering_metrics": {
+    "specific_power_predicted_w_m3": 1.8197433760594603,
+    "specific_power_true_cfd_w_m3": 6.284646476301077,
+    "specific_power_relative_error": 0.7030144675238896,
+    "kla_predicted_h_inv": 12.152152539401039,
+    "kla_true_cfd_h_inv": 20.93270117858078,
+    "kla_relative_error": 0.4216087417835414,
+    "max_shear_rate_predicted_s_inv": 288.50725566296256,
+    "max_shear_rate_true_cfd_s_inv": 483.66147990231866,
+    "max_shear_rate_relative_error": 0.3788766426813777,
+    "kolmogorov_predicted_um": 154.71032039925927,
+    "kolmogorov_true_cfd_um": 117.21705178161088,
+    "kolmogorov_relative_error": 0.37013909373594955,
+    "mixing_time_95_s": 5.706360997696827,
+    "circulation_time_s": 10.019710254214932,
+    "pumping_rate_m3_s": 0.025730415000000006
+  },
+  "inference_performance": {
+    "device": "cuda:0",
+    "single_snapshot_latency_ms": 0.6403317202057224,
+    "single_snapshot_p95_ms": 0.6752763512849924,
+    "cfd_speedup_factor": 25767.894129828637,
+    "batches": {
+      "batch_1": {
+        "batch_size": 1,
+        "mean_latency_ms": 0.6403317202057224,
+        "latency_per_snapshot_ms": 0.6403317202057224,
+        "median_latency_ms": 0.6373030009854119,
+        "p95_latency_ms": 0.6752763512849924,
+        "p99_latency_ms": 0.6856699887794093,
+        "min_latency_ms": 0.6252560015127528,
+        "max_latency_ms": 0.690838998707477,
+        "throughput_snapshots_per_sec": 1561.690555761825,
+        "openfoam_baseline_sec": 16.5,
+        "cfd_speedup_factor": 25767.894129828637,
+        "gpu_allocated_mb": 23.4873046875,
+        "gpu_reserved_mb": 44.0
+      },
+      "batch_4": {
+        "batch_size": 4,
+        "mean_latency_ms": 0.6596876000548946,
+        "latency_per_snapshot_ms": 0.16492190001372364,
+        "median_latency_ms": 0.6581624984391965,
+        "p95_latency_ms": 0.6682775498120463,
+        "p99_latency_ms": 0.6768270712564117,
+        "min_latency_ms": 0.651174002996413,
+        "max_latency_ms": 0.6814610023866408,
+        "throughput_snapshots_per_sec": 6063.476105458323,
+        "openfoam_baseline_sec": 16.5,
+        "cfd_speedup_factor": 100047.35513342758,
+        "gpu_allocated_mb": 24.2431640625,
+        "gpu_reserved_mb": 44.0
+      },
+      "batch_16": {
+        "batch_size": 16,
+        "mean_latency_ms": 0.7645531396701699,
+        "latency_per_snapshot_ms": 0.04778457122938562,
+        "median_latency_ms": 0.7610009997733869,
+        "p95_latency_ms": 0.7898704998297035,
+        "p99_latency_ms": 0.8032485993317096,
+        "min_latency_ms": 0.7417449996864889,
+        "max_latency_ms": 0.8085699992079753,
+        "throughput_snapshots_per_sec": 20927.256942404867,
+        "openfoam_baseline_sec": 16.5,
+        "cfd_speedup_factor": 345299.73232350405,
+        "gpu_allocated_mb": 27.2666015625,
+        "gpu_reserved_mb": 44.0
+      }
+    }
+  }
+}

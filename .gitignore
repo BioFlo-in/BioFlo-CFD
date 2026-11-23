@@ -54,11 +54,26 @@ outputs/**/*.pt
 # External third-party cloned OpenFOAM repos
 external_openfoam_sources/
 
+# Agent State & Work Documentation
+.agents/
+WORK_STATE.md
+.omc/
+
 # Large OpenFOAM numerical solve time-step fields & case outputs
 openfoam_cases/**/0.*
 openfoam_cases/**/[1-9]*
 openfoam_cases/**/uniform/
 openfoam_cases/**/processor*
+openfoam_cases/**/*.foam
+openfoam_cases/test_petsc_gpu/
+outputs/axiom_export/
+outputs/bigger_and_3d_meshes/
+outputs/commercial_20000l_frames/
+outputs/comparison_video_frames/
+outputs/different_geometry_tests/
+outputs/kaggle/
+outputs/openfoam_20000l_reconstructed/
+outputs/video_frames/
 outputs/**/0.*
 outputs/**/[1-9]*
 outputs/**/uniform/
@@ -78,3 +93,16 @@ outputs/bioreactor_run/ground_truth/
 *.swo
 *~
 .DS_Store
+
+# OpenFOAM heavy solver logs and large mesh dumps
+openfoam_cases/**/log.*
+openfoam_cases/**/constant/polyMesh/
+openfoam_cases/**/constant/extendedFeatureEdgeMesh/
+openfoam_cases/**/constant/triSurface/*.stl
+openfoam_cases/**/constant/triSurface/*.obj
+openfoam_cases/professional_cstr_3d/
+openfoam_cases/professional_cstr_3d_gpu_mrf/
+openfoam_cases/professional_cstr_3d_mrf/
+openfoam_cases/bioreactor_approach_a_multiphase/
+openfoam_cases/bioreactor_approach_b_variable_density/
+docker/
