@@ -11,6 +11,10 @@ from .bioreactor import (
     BioreactorGeometry,
     compute_bioprocess_shear_metrics,
 )
+from .bird_mesh_adapter import (
+    BiRDMeshAdapter,
+    StirredTankSpec,
+)
 
 __all__ = [
     "NavierStokes2DSimulator",
@@ -25,4 +29,6 @@ __all__ = [
     "BioreactorSimulator",
     "BioreactorGeometry",
     "compute_bioprocess_shear_metrics",
+    "BiRDMeshAdapter",
+    "StirredTankSpec",
 ]
