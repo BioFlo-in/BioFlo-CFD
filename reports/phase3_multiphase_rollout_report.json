@@ -1,0 +1,21 @@
+{
+  "benchmark": "Phase3_Long_Horizon_Multiphase_Rollout",
+  "num_steps": 100,
+  "dt": 0.05000000074505806,
+  "test_rpm": 450.0,
+  "n_modes": 12,
+  "stability_metrics": {
+    "initial_kinetic_energy": 0.15068721771240234,
+    "final_kinetic_energy": 0.056955818086862564,
+    "kinetic_energy_drift_pct": 62.20262146176926,
+    "max_divergence_norm": 0.019080402329564095,
+    "gas_holdup_min": 0.0,
+    "gas_holdup_max": 0.1315767765045166,
+    "mean_gas_holdup_100_steps": 0.019084697235375644
+  },
+  "qoi_trajectories": {
+    "kla_step_50_h_inv": 147.7767078151636,
+    "kla_step_100_h_inv": 147.8191308978418,
+    "mean_interfacial_area_step_100_m2_m3": 68.09288918167249
+  }
+}

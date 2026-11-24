@@ -176,3 +176,87 @@ def export_simulation_state_to_openfoam(
         )
 
     return target_time_dir
+
+
+def export_multiphase_simulation_state_to_openfoam(
+    case_dir: Union[str, Path],
+    time_val: float,
+    u_liquid_pred: np.ndarray,
+    alpha_gas_pred: np.ndarray,
+    u_gas_pred: Optional[np.ndarray] = None,
+    p_rgh_pred: Optional[np.ndarray] = None,
+    boundary_templates: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Path:
+    """
+    Exports a predicted two-phase simulation state (liquid velocity, gas fraction, gas velocity)
+    directly into a BiRD/OpenFOAM multiphase case directory for warm-start solver acceleration.
+    Creates folder <case_dir>/<time_val>/ containing:
+      - U.liquid
+      - U.gas
+      - alpha.gas
+      - alpha.liquid (= 1.0 - alpha.gas)
+      - p_rgh
+    """
+    case_dir = Path(case_dir)
+    if time_val == 0.0 or time_val.is_integer():
+        time_str = f"{int(time_val)}"
+    else:
+        time_str = f"{time_val:.4f}".rstrip("0").rstrip(".")
+
+    target_time_dir = case_dir / time_str
+    target_time_dir.mkdir(parents=True, exist_ok=True)
+
+    b_templates = boundary_templates or {}
+
+    # 1. Liquid velocity
+    write_foam_vector_field(
+        filepath=target_time_dir / "U.liquid",
+        values=u_liquid_pred,
+        field_name="U.liquid",
+        boundary_specs=b_templates.get("U.liquid"),
+    )
+
+    # 2. Gas velocity (defaults to slip-velocity rise if not provided)
+    if u_gas_pred is None:
+        u_gas_pred = u_liquid_pred.copy()
+        if u_gas_pred.ndim == 2 and u_gas_pred.shape[1] == 3:
+            u_gas_pred[:, 2] += 0.20  # +0.20 m/s rising slip velocity
+
+    write_foam_vector_field(
+        filepath=target_time_dir / "U.gas",
+        values=u_gas_pred,
+        field_name="U.gas",
+        boundary_specs=b_templates.get("U.gas"),
+    )
+
+    # 3. Dispersed gas volume fraction alpha.gas (bounded in [0, 1])
+    alpha_g_clean = np.clip(alpha_gas_pred.flatten(), 0.0, 1.0)
+    write_foam_scalar_field(
+        filepath=target_time_dir / "alpha.gas",
+        values=alpha_g_clean,
+        field_name="alpha.gas",
+        dimensions="[0 0 0 0 0 0 0]",
+        boundary_specs=b_templates.get("alpha.gas"),
+    )
+
+    # 4. Continuous liquid volume fraction alpha.liquid = 1.0 - alpha.gas
+    alpha_l_clean = 1.0 - alpha_g_clean
+    write_foam_scalar_field(
+        filepath=target_time_dir / "alpha.liquid",
+        values=alpha_l_clean,
+        field_name="alpha.liquid",
+        dimensions="[0 0 0 0 0 0 0]",
+        boundary_specs=b_templates.get("alpha.liquid"),
+    )
+
+    # 5. Dynamic pressure p_rgh
+    if p_rgh_pred is not None:
+        write_foam_scalar_field(
+            filepath=target_time_dir / "p_rgh",
+            values=p_rgh_pred,
+            field_name="p_rgh",
+            dimensions="[1 -1 -2 0 0 0 0]",
+            boundary_specs=b_templates.get("p_rgh"),
+        )
+
+    return target_time_dir

@@ -145,6 +145,66 @@ def test_learned_numerical_evolution_engine_rollout():
         assert k < 1e5
 
 
+def test_multiphase_evolution_engine_rollout():
+    """Verify autonomous 50-step rollout for coupled 4-channel multiphase fields [ux, uy, uz, alpha_g]."""
+    torch.manual_seed(42)
+    D, H, W = 8, 8, 8
+    channels = 4
+    spatial_dim = channels * D * H * W
+    n_modes = 6
+
+    # Orthonormal basis
+    random_mat = torch.randn(spatial_dim, n_modes)
+    basis, _ = torch.linalg.qr(random_mat)
+    base_flow = torch.randn(channels, D, H, W)
+    base_flow[3] = torch.clamp(base_flow[3], 0.01, 0.10)  # Initial gas fraction
+
+    engine = LearnedNumericalEvolutionEngine(
+        pod_basis=basis,
+        base_flow=base_flow,
+        grid_shape=(D, H, W),
+        channels=channels,
+        param_dim=1,
+        hidden_dim=32,
+        num_blocks=2,
+        enforce_projection_in_loop=True,
+    )
+
+    a_0 = torch.randn(1, n_modes) * 0.1
+    a_prev = a_0 * 0.99
+    dt = torch.tensor([[0.01]])
+    params = torch.tensor([[450.0]])
+
+    rollout_res = engine.rollout(
+        a_0=a_0,
+        a_prev=a_prev,
+        dt=dt,
+        params=params,
+        num_steps=50,
+        return_fields=True,
+    )
+
+    modes = rollout_res["modes"]
+    fields = rollout_res["fields"]
+    ke = rollout_res["kinetic_energy"]
+    holdup = rollout_res["gas_holdup"]
+
+    assert modes.shape == (50, 1, n_modes)
+    assert fields.shape == (50, 1, 4, D, H, W)
+    assert len(ke) == 50
+    assert len(holdup) == 50
+
+    # Verify gas holdup boundedness across all 50 unrolled steps
+    alpha_all = fields[:, :, 3]
+    assert torch.all(alpha_all >= 0.0)
+    assert torch.all(alpha_all <= 1.0)
+
+    # Verify kinetic energy boundedness
+    for k_val in ke:
+        assert not np.isnan(k_val)
+        assert k_val < 1e5
+
+
 def test_multistep_rollout_loss():
     """Verify multi-step rollout loss correctly penalizes drift, energy discrepancy, and velocity."""
     K, B, n_modes = 5, 2, 8

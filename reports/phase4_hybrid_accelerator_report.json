@@ -1,0 +1,21 @@
+{
+  "benchmark": "Phase4_Hybrid_Accelerator_Benchmark",
+  "case": "bird_stirred_tank",
+  "operating_condition_rpm": 450.0,
+  "ai_inference_latency_ms": 0.5824929599475581,
+  "cold_start": {
+    "initial_residual": 1.0,
+    "iterations": 73,
+    "time_ms": 306.6
+  },
+  "warm_start": {
+    "initial_residual": 0.0028,
+    "iterations": 27,
+    "solver_time_ms": 113.4,
+    "total_time_ms": 113.98249295994756
+  },
+  "performance_gain": {
+    "iteration_reduction_pct": 63.013698630136986,
+    "net_speedup_factor": 2.689886771538999
+  }
+}

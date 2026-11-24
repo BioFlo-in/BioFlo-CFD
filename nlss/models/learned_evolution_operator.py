@@ -254,22 +254,26 @@ class LearnedNumericalEvolutionEngine(nn.Module):
       - Orthonormal spatial POD basis (Phi)
       - Exact 3D Solenoidal incompressibility projector (LerayProjection3D)
       - Closed-loop spatial projection feedback
+      - Multi-phase field support (channels=3 for single-phase, channels=4 for [u_x, u_y, u_z, alpha_g])
     """
 
     def __init__(
         self,
-        pod_basis: torch.Tensor,          # (3*D*H*W, K) or (K, 3*D*H*W)
-        base_flow: torch.Tensor,          # (3, D, H, W) or (3*D*H*W,)
+        pod_basis: torch.Tensor,          # (channels*D*H*W, K) or (K, channels*D*H*W)
+        base_flow: torch.Tensor,          # (channels, D, H, W) or (channels*D*H*W,)
         grid_shape: Tuple[int, int, int], # (D, H, W)
+        channels: int = 3,
         param_dim: int = 1,
         hidden_dim: int = 128,
         num_blocks: int = 3,
+        dissipative_damping: float = 0.01,
         enforce_projection_in_loop: bool = True,
     ):
         super().__init__()
         self.grid_shape = grid_shape
+        self.channels = channels
         D, H, W = grid_shape
-        self.spatial_dim = 3 * D * H * W
+        self.spatial_dim = channels * D * H * W
 
         # Ensure pod_basis is (spatial_dim, K)
         if pod_basis.ndim == 2:
@@ -289,7 +293,7 @@ class LearnedNumericalEvolutionEngine(nn.Module):
 
         # Base flow
         if base_flow.numel() == self.spatial_dim:
-            self.register_buffer("base_flow", base_flow.reshape(1, 3, D, H, W).float())
+            self.register_buffer("base_flow", base_flow.reshape(1, channels, D, H, W).float())
         else:
             raise ValueError(f"Base flow shape mismatch: got {base_flow.shape}, expected {self.spatial_dim}")
 
@@ -299,37 +303,37 @@ class LearnedNumericalEvolutionEngine(nn.Module):
             param_dim=param_dim,
             hidden_dim=hidden_dim,
             num_blocks=num_blocks,
+            dissipative_damping=dissipative_damping,
         )
         self.leray_proj = LerayProjection3D()
 
     def decode_modes(self, a: torch.Tensor) -> torch.Tensor:
         """
-        Decodes latent mode vector a into spatial 3D velocity field:
+        Decodes latent mode vector a into spatial 3D velocity/multiphase field:
             u = u_bar + sum_k a_k * phi_k
         Args:
             a: Tensor of shape (B, K)
         Returns:
-            u: Tensor of shape (B, 3, D, H, W)
+            u: Tensor of shape (B, channels, D, H, W)
         """
         B, K = a.shape
         D, H, W = self.grid_shape
         # u_pert = a @ basis.T -> shape (B, spatial_dim)
         u_pert = torch.matmul(a, self.basis.T)
-        u_pert = u_pert.view(B, 3, D, H, W)
+        u_pert = u_pert.view(B, self.channels, D, H, W)
         return self.base_flow + u_pert
 
     def encode_field(self, u: torch.Tensor) -> torch.Tensor:
         """
-        Projects spatial 3D velocity field u onto latent POD modes:
+        Projects spatial 3D field u onto latent POD modes:
             a = Phi^T (u - u_bar)
         Args:
-            u: Tensor of shape (B, 3, D, H, W)
+            u: Tensor of shape (B, channels, D, H, W)
         Returns:
             a: Tensor of shape (B, K)
         """
         B, C, D, H, W = u.shape
         u_pert = (u - self.base_flow).reshape(B, self.spatial_dim)
-        # a = u_pert @ basis -> shape (B, K)
         return torch.matmul(u_pert, self.basis)
 
     def step(
@@ -344,18 +348,36 @@ class LearnedNumericalEvolutionEngine(nn.Module):
         Advances one physical step.
 
         Returns:
-            (a_next, u_next) where u_next is divergence-free.
+            (a_next, u_next) where velocity is divergence-free and gas fraction is clamped in [0, 1].
         """
         # 1. Advance latent dynamics
         a_raw = self.evolution_op(a_curr, a_prev, dt, params)
 
         # 2. Decode to 3D spatial field
         u_raw = self.decode_modes(a_raw)
+        D, H, W = self.grid_shape
 
-        # 3. Enforce exact solenoidal projection
-        u_clean = self.leray_proj(u_raw, fluid_mask=fluid_mask)
+        # 3. Enforce exact solenoidal projection for velocity & bounded holdup for gas
+        if self.channels == 3:
+            u_clean = self.leray_proj(u_raw, fluid_mask=fluid_mask)
+        elif self.channels >= 4:
+            # Velocity in channels 0:3
+            u_vel_sol = self.leray_proj(u_raw[:, :3], fluid_mask=fluid_mask)
+            # Gas holdup in channel 3: clamp to [0, 1]
+            alpha_g = torch.clamp(u_raw[:, 3:4], min=0.0, max=1.0)
+            if fluid_mask is not None:
+                mask_t = fluid_mask.view(1, 1, D, H, W).float() if fluid_mask.ndim == 3 else fluid_mask.float()
+                alpha_g = alpha_g * mask_t
+            if self.channels > 4:
+                # Other scalar fields (k, epsilon, etc.)
+                extra_fields = u_raw[:, 4:]
+                u_clean = torch.cat([u_vel_sol, alpha_g, extra_fields], dim=1)
+            else:
+                u_clean = torch.cat([u_vel_sol, alpha_g], dim=1)
+        else:
+            u_clean = u_raw
 
-        # 4. Optional closed-loop re-projection to maintain latent-spatial alignment
+        # 4. Closed-loop re-projection to maintain latent-spatial alignment
         if self.enforce_projection_in_loop:
             a_next = self.encode_field(u_clean)
         else:
@@ -381,12 +403,14 @@ class LearnedNumericalEvolutionEngine(nn.Module):
               - 'modes': (num_steps, B, K)
               - 'kinetic_energy': List of mean kinetic energy per step
               - 'divergence_norm': List of mean relative divergence per step
-              - 'fields': Optional (num_steps, B, 3, D, H, W)
+              - 'gas_holdup': Optional list of mean gas holdup per step (if channels >= 4)
+              - 'fields': Optional (num_steps, B, channels, D, H, W)
         """
         modes_list = []
         fields_list = []
         ke_list = []
         div_list = []
+        holdup_list = []
 
         curr_a = a_0
         prev_a = a_prev
@@ -397,16 +421,21 @@ class LearnedNumericalEvolutionEngine(nn.Module):
             if return_fields:
                 fields_list.append(next_u.unsqueeze(0))
 
-            # Compute kinetic energy: 0.5 * integral ||u||^2 dV
-            ke = 0.5 * torch.mean(torch.sum(next_u**2, dim=1)).item()
+            # Compute kinetic energy: 0.5 * integral ||u||^2 dV over velocity channels
+            u_vel = next_u[:, :3]
+            ke = 0.5 * torch.mean(torch.sum(u_vel**2, dim=1)).item()
             ke_list.append(ke)
 
-            # Compute divergence in spatial domain
-            du_dx = torch.gradient(next_u[:, 0], dim=-1)[0]
-            dv_dy = torch.gradient(next_u[:, 1], dim=-2)[0]
-            dw_dz = torch.gradient(next_u[:, 2], dim=-3)[0]
+            # Compute discrete divergence in spatial domain
+            du_dx = torch.gradient(u_vel[:, 0], dim=-1)[0]
+            dv_dy = torch.gradient(u_vel[:, 1], dim=-2)[0]
+            dw_dz = torch.gradient(u_vel[:, 2], dim=-3)[0]
             div_val = torch.mean(torch.abs(du_dx + dv_dy + dw_dz)).item()
             div_list.append(div_val)
+
+            if self.channels >= 4:
+                alpha_val = torch.mean(next_u[:, 3]).item()
+                holdup_list.append(alpha_val)
 
             # Advance pointers
             prev_a = curr_a
@@ -417,6 +446,8 @@ class LearnedNumericalEvolutionEngine(nn.Module):
             "kinetic_energy": ke_list,
             "divergence_norm": div_list,
         }
+        if self.channels >= 4:
+            res["gas_holdup"] = holdup_list
         if return_fields:
             res["fields"] = torch.cat(fields_list, dim=0)
 

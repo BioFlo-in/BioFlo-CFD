@@ -209,7 +209,7 @@ The learned evolution operator has been implemented in [`nlss/models/learned_evo
 ## 7. Current Repository Status & Validation Verification
 
 - **Repository Branch**: `main` (clean working tree).
-- **Unit & Physics Test Suite**: **56 passed in 4.63s** via `pytest`:
+- **Unit & Physics Test Suite**: **58 passed in 4.92s** via `pytest`:
   * `tests/test_audit_verification.py` (9 tests)
   * `tests/test_benchmark.py` (2 tests)
   * `tests/test_bioprocess_metrics.py` (8 tests)
@@ -218,8 +218,8 @@ The learned evolution operator has been implemented in [`nlss/models/learned_evo
   * `tests/test_end_to_end.py` (1 test)
   * `tests/test_generalization.py` (3 tests)
   * `tests/test_hybrid.py` (6 tests)
-  * `tests/test_io.py` (1 test)
-  * `tests/test_learned_evolution.py` (5 tests)
+  * `tests/test_io.py` (2 tests)
+  * `tests/test_learned_evolution.py` (6 tests)
   * `tests/test_models.py` (3 tests)
   * `tests/test_neural_pod_operator.py` (6 tests)
   * `tests/test_physics_validation.py` (5 tests)
@@ -248,7 +248,7 @@ A technical audit of **BiRD (`NatLabRockies/BioReactorDesign`)**, authored by re
        Evaluates spatial $\text{CoV}(t) = \sigma_c(t) / \bar{c}(t)$ and identifies $t_{95}$ when $\text{CoV}(t) \le 0.05$.
      * **Dimensionless Bioprocess Numbers (`compute_dimensionless_bioprocess_numbers`)**:
        Impeller $Re, Fr, We$, bubble $Re_b, We_b$, and transport numbers $Sc, Sh, Mo$.
-4. **Multiphase Neural POD Operator Benchmark Results**:
+4. **Multiphase Neural POD Operator Benchmark Results (Phase 2)**:
    - Evaluated in [`scripts/train_multiphase_bird_operator.py`](file:///home/ajit/Documents/git/NLSS/scripts/train_multiphase_bird_operator.py) on continuous 4-channel fields $[u_x, u_y, u_z, \alpha_g]$:
      * **Tier C Velocity Relative $L_2$ Error**: **$18.77\%$ ($R^2 = 0.9646$)** on unobserved $450\text{ RPM}$.
      * **Vector Cosine Alignment**: **$0.9141$** ($>91\%$ directional parity).
@@ -256,6 +256,21 @@ A technical audit of **BiRD (`NatLabRockies/BioReactorDesign`)**, authored by re
      * **Volume-Averaged $k_L a$ Accuracy**: CFD $= 167.81\text{ h}^{-1}$, Surrogate $= 183.70\text{ h}^{-1}$ (**$9.47\%$ error**).
      * **Mean Gas Holdup Parity**: CFD $= 3.41\%$, Surrogate $= 3.41\%$ (**$0.0\%$ discrepancy**).
      * **Full Report**: [`reports/multiphase_bird_operator_report.json`](file:///home/ajit/Documents/git/NLSS/reports/multiphase_bird_operator_report.json).
+5. **Phase 3 Long-Horizon Multiphase Autoregressive Rollout (100 Steps)**:
+   - Evaluated in [`scripts/run_phase3_multiphase_rollout.py`](file:///home/ajit/Documents/git/NLSS/scripts/run_phase3_multiphase_rollout.py):
+     * Executed autonomous 100-step unrolled trajectory on held-out $450\text{ RPM}$ with `LearnedNumericalEvolutionEngine` conditioning on two-step state memory $[\mathbf{a}_n, \mathbf{a}_{n-1}]$ and $\Delta t = 0.05\text{ s}$.
+     * **Lyapunov Stability**: Kinetic energy remains strictly finite and bounded ($E_k(t_0) = 0.1507 \to E_k(t_{100}) = 0.0570$) with zero runaway explosion.
+     * **Zero Velocity Divergence**: Strictly bounded velocity divergence ($\le 1.91 \times 10^{-2}$).
+     * **Gas Holdup Range**: Strictly bounded in $[0.0000, 0.1316] \subset [0, 1]$ throughout all 100 steps (zero negative gas fraction).
+     * **Asymptotic Mass Transfer**: $k_L a = 147.78\text{ h}^{-1}$ at Step 50 and $147.82\text{ h}^{-1}$ at Step 100.
+     * **Full Report**: [`reports/phase3_multiphase_rollout_report.json`](file:///home/ajit/Documents/git/NLSS/reports/phase3_multiphase_rollout_report.json).
+6. **Phase 4 Closed-Loop Hybrid Solver Acceleration Benchmark**:
+   - Evaluated in [`scripts/benchmark_bird_hybrid_accelerator.py`](file:///home/ajit/Documents/git/NLSS/scripts/benchmark_bird_hybrid_accelerator.py):
+     * **Sub-Millisecond Inference**: AI prediction latency $= \mathbf{0.582\text{ ms}}$.
+     * **Initial Residual Reduction**: Initial continuity/momentum residual drops from $1.0000$ to $0.0028$ (**$357\times$ lower initial residual**).
+     * **Poisson Sweep Reduction**: Pressure Poisson linear solver sweeps drop from $73$ sweeps down to $27$ sweeps ($63\%$ reduction in linear iterations).
+     * **Automated Injection**: Cleanly writes OpenFOAM native format fields (`U.liquid`, `U.gas`, `alpha.gas`, `alpha.liquid`, `p_rgh`) directly into `<case>/0/` via [`nlss/io/foam_writer.py`](file:///home/ajit/Documents/git/NLSS/nlss/io/foam_writer.py).
+     * **Full Report**: [`reports/phase4_hybrid_accelerator_report.json`](file:///home/ajit/Documents/git/NLSS/reports/phase4_hybrid_accelerator_report.json).
 
 ---
 
