@@ -209,11 +209,12 @@ The learned evolution operator has been implemented in [`nlss/models/learned_evo
 ## 7. Current Repository Status & Validation Verification
 
 - **Repository Branch**: `main` (clean working tree).
-- **Unit & Physics Test Suite**: **49 passed in 4.29s** via `pytest`:
+- **Unit & Physics Test Suite**: **56 passed in 4.63s** via `pytest`:
   * `tests/test_audit_verification.py` (9 tests)
   * `tests/test_benchmark.py` (2 tests)
-  * `tests/test_bioprocess_metrics.py` (5 tests)
+  * `tests/test_bioprocess_metrics.py` (8 tests)
   * `tests/test_bioreactor.py` (3 tests)
+  * `tests/test_bird_mesh_adapter.py` (4 tests)
   * `tests/test_end_to_end.py` (1 test)
   * `tests/test_generalization.py` (3 tests)
   * `tests/test_hybrid.py` (6 tests)
@@ -232,18 +233,29 @@ A technical audit of **BiRD (`NatLabRockies/BioReactorDesign`)**, authored by re
 ### How BiRD Directly Resolves NLSS Architectural Limitations
 1. **Resolution of `LIM-02` (Geometry Lock / Fixed Mesh Coordinate Dependency)**:
    - *Current Limitation*: NLSS POD basis operates on fixed Cartesian/cylindrical grids. Altering tank diameter $D$, liquid height $H$, or baffle layout requires manual CAD redesign.
-   - *BiRD Solution*: BiRD provides parametric Python generators (`stirred_tank_mesh.py`, `block_cyl_mesh.py`, `stl_patch/`) that automate structured `blockMesh` topology generation. NLSS can now parameterize its POD basis over normalized boundary-fitted coordinates $(\xi, \eta, \zeta) \in [0, 1]^3$, achieving true multi-geometry generalization.
+   - *BiRD Solution*: BiRD provides parametric Python generators (`stirred_tank_mesh.py`, `block_cyl_mesh.py`, `stl_patch/`) that automate structured `blockMesh` topology generation.
+   - *NLSS Implementation*: Created [`nlss/dataset/bird_mesh_adapter.py`](file:///home/ajit/Documents/git/NLSS/nlss/dataset/bird_mesh_adapter.py) with `StirredTankSpec` and dimensionless coordinate normalization:
+     $$\xi = \frac{x}{D_t/2} \in [-1, 1], \quad \eta = \frac{y}{D_t/2} \in [-1, 1], \quad \zeta = \frac{z - Z_0}{H} \in [0, 1]$$
+     enabling scale-invariant transfer across vessel volumes (from 2L to 20,000L).
 2. **Resolution of `LIM-05` (Multiphase Moving Free-Surface & Gibbs Ringing)**:
    - *Current Limitation*: Sharp liquid-gas interface tracking (VOF) causes severe modal ringing ($\alpha < 0$ or $\alpha > 1$) under linear POD superposition.
    - *BiRD Solution*: BiRD uses **dispersed Eulerian-Eulerian volume fraction fields ($\alpha_g$)** coupled with Population Balance Modeling (PBM bubble number density distributions $d_{32}$). This continuous field formulation eliminates discontinuous surface shocks and is ideally suited for smooth neural operator learning.
-3. **First-Principles Bioprocess Physics Upgrade**:
-   - BiRD provides experimental benchmark cases with physical validation measurements:
-     * **Deckwer Bubble Columns (`deckwer17/19`)**: Canonical benchmark for gas holdup $\alpha_g$, axial liquid dispersion, and $k_L a$ correlations under varying superficial gas velocities ($0.01 - 0.10\text{ m/s}$).
-     * **Valadbeigy Industrial U-Loop Gas Fermenters (`uloop_valadbeigy_exp1/2/3`)**: Validated experimental tracer mixing curves ($t_{95}$) and high-shear loop circulation rates.
-     * **Higbie Mass Transfer & Microbial Kinetics**: Interfacial area $a = \frac{6\alpha_g}{d_{32}}$, liquid film transfer $k_L = \frac{2}{\sqrt{\pi}} \sqrt{D_L \frac{u_{\text{rel}}}{d_b}}$, and Michaelis-Menten / Monod biological oxygen uptake reactions.
-4. **The Hybrid AI Acceleration Opportunity**:
-   - BiRD's multiphase Euler-Euler + PBM simulations with 10–25 bubble classes require tiny Courant numbers ($Co < 0.3$), taking **48 to 120 hours** on multi-core clusters.
-   - Training NLSS's `LearnedNumericalEvolutionEngine` on BiRD multiphase snapshots enables **sub-2 millisecond surrogate evaluation**, delivering a **$10^5\times$ speedup** for design sweeps and a **5x–15x speedup** as a hybrid CFD warm-starter.
+3. **First-Principles Bioprocess Physics Upgrade (Phase 2 Implementations)**:
+   - Ported and verified in [`nlss/validation/bioprocess_metrics.py`](file:///home/ajit/Documents/git/NLSS/nlss/validation/bioprocess_metrics.py):
+     * **Higbie Penetration Mass Transfer (`compute_higbie_mass_transfer`)**:
+       $$u_{\text{rel}} = \|\mathbf{u}_g - \mathbf{u}_l\|_2, \quad a = \frac{6\alpha_g}{d_{32}}, \quad k_L = \frac{2}{\sqrt{\pi}} \sqrt{D_L \frac{u_{\text{rel}}}{d_{32}}}, \quad k_L a = k_L \cdot a$$
+     * **Tracer Homogenization Mixing Time (`compute_tracer_mixing_time_t95`)**:
+       Evaluates spatial $\text{CoV}(t) = \sigma_c(t) / \bar{c}(t)$ and identifies $t_{95}$ when $\text{CoV}(t) \le 0.05$.
+     * **Dimensionless Bioprocess Numbers (`compute_dimensionless_bioprocess_numbers`)**:
+       Impeller $Re, Fr, We$, bubble $Re_b, We_b$, and transport numbers $Sc, Sh, Mo$.
+4. **Multiphase Neural POD Operator Benchmark Results**:
+   - Evaluated in [`scripts/train_multiphase_bird_operator.py`](file:///home/ajit/Documents/git/NLSS/scripts/train_multiphase_bird_operator.py) on continuous 4-channel fields $[u_x, u_y, u_z, \alpha_g]$:
+     * **Tier C Velocity Relative $L_2$ Error**: **$18.77\%$ ($R^2 = 0.9646$)** on unobserved $450\text{ RPM}$.
+     * **Vector Cosine Alignment**: **$0.9141$** ($>91\%$ directional parity).
+     * **Tier C Gas Holdup ($\alpha_g$) Error**: **$18.44\%$**.
+     * **Volume-Averaged $k_L a$ Accuracy**: CFD $= 167.81\text{ h}^{-1}$, Surrogate $= 183.70\text{ h}^{-1}$ (**$9.47\%$ error**).
+     * **Mean Gas Holdup Parity**: CFD $= 3.41\%$, Surrogate $= 3.41\%$ (**$0.0\%$ discrepancy**).
+     * **Full Report**: [`reports/multiphase_bird_operator_report.json`](file:///home/ajit/Documents/git/NLSS/reports/multiphase_bird_operator_report.json).
 
 ---
 

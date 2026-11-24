@@ -33,6 +33,9 @@ from .bioprocess_metrics import (
     compute_specific_power_input,
     compute_kla,
     compute_mixing_time,
+    compute_higbie_mass_transfer,
+    compute_tracer_mixing_time_t95,
+    compute_dimensionless_bioprocess_numbers,
     evaluate_bioprocess_field_comparison,
 )
 
@@ -59,5 +62,8 @@ __all__ = [
     "compute_specific_power_input",
     "compute_kla",
     "compute_mixing_time",
+    "compute_higbie_mass_transfer",
+    "compute_tracer_mixing_time_t95",
+    "compute_dimensionless_bioprocess_numbers",
     "evaluate_bioprocess_field_comparison",
 ]

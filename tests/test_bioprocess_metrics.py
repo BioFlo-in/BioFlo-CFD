@@ -14,6 +14,9 @@ from nlss.validation.bioprocess_metrics import (
     compute_specific_power_input,
     compute_kla,
     compute_mixing_time,
+    compute_higbie_mass_transfer,
+    compute_tracer_mixing_time_t95,
+    compute_dimensionless_bioprocess_numbers,
     evaluate_bioprocess_field_comparison,
 )
 
@@ -109,3 +112,95 @@ def test_bioprocess_comparison_identical_fields():
     )
     assert comp["specific_power_relative_error"] == 0.0
     assert comp["kla_relative_error"] == 0.0
+
+
+def test_higbie_mass_transfer():
+    """Verify first-principles Higbie mass transfer formulation ported from BiRD."""
+    D, H, W = 8, 8, 8
+    # Constant gas holdup alpha_g = 0.05 (5%)
+    alpha_g = np.full((D, H, W), 0.05, dtype=np.float64)
+
+    # Relative velocity: gas rising at 0.25 m/s, liquid at 0.05 m/s -> u_slip = 0.20 m/s
+    ug = np.zeros((3, D, H, W), dtype=np.float64)
+    ug[2] = 0.25
+    ul = np.zeros((3, D, H, W), dtype=np.float64)
+    ul[2] = 0.05
+
+    d_b = 0.003  # 3 mm Sauter diameter
+    D_L = 2.1e-9  # O2 in water
+
+    res = compute_higbie_mass_transfer(
+        alpha_gas_grid=alpha_g,
+        u_gas_grid=ug,
+        u_liquid_grid=ul,
+        d_bubble=d_b,
+        diffusivity=D_L,
+    )
+
+    # Analytical values:
+    # a = 6 * alpha_g / d_b = 6 * 0.05 / 0.003 = 100 m^2/m^3
+    assert res["mean_interfacial_area_m2_m3"] == pytest.approx(100.0, rel=1e-3)
+    # k_L = (2 / sqrt(pi)) * sqrt(D_L * u_rel / d_b)
+    expected_kl = (2.0 / np.sqrt(np.pi)) * np.sqrt(D_L * 0.20 / d_b)
+    assert res["mean_kl_m_s"] == pytest.approx(expected_kl, rel=1e-3)
+
+    # Local kla = k_L * a = 4.2219e-4 * 100 = 0.0422 s^-1
+    expected_kla_s = expected_kl * 100.0
+    # Integrated over liquid volume (1 - alpha_g = 0.95):
+    expected_kla_integrated = expected_kla_s / 0.95
+    assert res["kla_volume_averaged_s_inv"] == pytest.approx(expected_kla_integrated, rel=1e-2)
+    assert res["kla_volume_averaged_h_inv"] == pytest.approx(expected_kla_integrated * 3600.0, rel=1e-2)
+    assert res["mean_gas_holdup"] == pytest.approx(0.05, rel=1e-3)
+
+
+def test_tracer_mixing_time_t95():
+    """Verify empirical 95% tracer homogenization curve and t95 detection."""
+    T, D, H, W = 20, 4, 4, 4
+    time_points = np.linspace(0.0, 10.0, T)
+    tau_decay = 2.0  # characteristic mixing decay time
+
+    # Generate synthetic decaying concentration field: c(x, t) = 1.0 + perturbation * exp(-t / tau)
+    np.random.seed(42)
+    base_pert = np.random.randn(D, H, W)
+    base_pert -= np.mean(base_pert)
+    # Scale initial perturbation so initial CoV is ~ 0.50
+    base_pert = 0.50 * base_pert / np.std(base_pert)
+
+    tracer_series = np.zeros((T, D, H, W))
+    for t_idx, t_val in enumerate(time_points):
+        decay = np.exp(-t_val / tau_decay)
+        tracer_series[t_idx] = 1.0 + base_pert * decay
+
+    res = compute_tracer_mixing_time_t95(tracer_series, time_points, target_band=0.05)
+
+    assert res["is_well_mixed"] is True
+    # Initial CoV ~ 0.50, target is 0.05 -> t_95 ~ tau * ln(10) ~ 4.6s
+    assert 4.0 <= res["mixing_time_95_s"] <= 5.5
+    assert res["final_cov"] < 0.05
+    assert len(res["cov_history"]) == T
+
+
+def test_dimensionless_bioprocess_numbers():
+    """Verify dimensionless numbers matching BiRD standard definitions."""
+    nums = compute_dimensionless_bioprocess_numbers(
+        N_rpm=300.0,
+        D_impeller=0.10,
+        rho_liquid=1000.0,
+        mu_liquid=1e-3,
+        surface_tension=0.0728,
+        d_bubble=0.003,
+        u_slip=0.20,
+        diffusivity=2.1e-9,
+    )
+
+    # Re_imp = 1000 * 5 * 0.01 / 1e-3 = 50,000 (turbulent)
+    assert nums["reynolds_impeller"] == pytest.approx(50000.0, rel=1e-3)
+    # Fr = 25 * 0.1 / 9.81 = 0.2548
+    assert nums["froude_impeller"] == pytest.approx(2.5 / 9.81, rel=1e-3)
+    # Re_bubble = 1000 * 0.2 * 0.003 / 1e-3 = 600
+    assert nums["reynolds_bubble"] == pytest.approx(600.0, rel=1e-3)
+    # Sc = (1e-3 / 1000) / 2.1e-9 = 476.19
+    assert nums["schmidt_number"] == pytest.approx(476.19, rel=1e-2)
+    # Sh = (2 / sqrt(pi)) * sqrt(600 * 476.19) > 500
+    assert nums["sherwood_number"] > 500.0
+

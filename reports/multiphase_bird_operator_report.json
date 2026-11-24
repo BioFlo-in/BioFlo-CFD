@@ -1,0 +1,46 @@
+{
+  "benchmark_name": "BiRD_Multiphase_Neural_POD_Benchmark",
+  "reactor_spec": {
+    "tank_diameter_m": 0.3,
+    "impeller_diameter_m": 0.1,
+    "liquid_height_m": 0.45,
+    "nbaffles": 4
+  },
+  "operating_conditions": {
+    "train_rpms": [
+      300.0,
+      600.0
+    ],
+    "test_rpm": 450.0
+  },
+  "neural_pod_operator": {
+    "n_modes": 16,
+    "cumulative_energy_pct": 100.0,
+    "theoretical_reconstruction_accuracy_pct": 99.99999999999841
+  },
+  "tier_c_generalization_results": {
+    "velocity_relative_l2_error": 0.1876692332114429,
+    "velocity_r2_score": 0.964604449614259,
+    "vector_cosine_similarity": 0.9141285946481702,
+    "gas_holdup_relative_l2_error": 0.1843881402514641
+  },
+  "first_principles_qois": {
+    "kla_true_h_inv": 167.80561319713308,
+    "kla_predicted_h_inv": 183.6960804094791,
+    "kla_relative_error": 0.09469568335403869,
+    "mean_gas_holdup_true": 0.03406906066189145,
+    "mean_gas_holdup_pred": 0.03408177779299509,
+    "mean_interfacial_area_true_m2_m3": 68.1381213237829,
+    "mean_interfacial_area_pred_m2_m3": 68.16355558599018,
+    "dimensionless_numbers": {
+      "reynolds_impeller": 75000.00000000001,
+      "froude_impeller": 0.573394495412844,
+      "weber_impeller": 772.6648351648353,
+      "reynolds_bubble": 600.0,
+      "weber_bubble": 1.6483516483516485,
+      "schmidt_number": 476.19047619047615,
+      "sherwood_number": 603.1440350921075,
+      "morton_number": 2.5425814223211883e-14
+    }
+  }
+}

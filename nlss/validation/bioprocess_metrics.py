@@ -301,6 +301,252 @@ def compute_mixing_time(
     }
 
 
+def compute_higbie_mass_transfer(
+    alpha_gas_grid: Union[np.ndarray, torch.Tensor],
+    u_gas_grid: Union[np.ndarray, torch.Tensor],
+    u_liquid_grid: Union[np.ndarray, torch.Tensor],
+    d_bubble: Union[float, np.ndarray, torch.Tensor] = 0.003,  # Sauter d32 in meters (default 3mm)
+    diffusivity: float = 2.1e-9,  # D_O2 in water at 25°C [m^2/s]
+    fluid_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
+    rho_liquid: float = 1000.0,
+    mu_liquid: float = 1e-3,
+) -> Dict[str, Union[float, np.ndarray]]:
+    """
+    First-Principles Multiphase Interfacial Mass Transfer via Higbie Penetration Theory
+    (Ported from BiRD / NREL BioReactorDesign toolbox).
+
+    Governing Equations:
+      1. Slip Velocity: u_rel(x) = ||U_gas(x) - U_liquid(x)||_2
+      2. Interfacial Area Density: a(x) = 6 * alpha_gas(x) / d_bubble(x)   [m^2 / m^3]
+      3. Liquid-Film Transfer Coefficient:
+             k_L(x) = (2 / sqrt(pi)) * sqrt(D_L * u_rel(x) / d_bubble(x))   [m / s]
+      4. Volumetric Mass Transfer Coefficient Field:
+             k_L a(x) = k_L(x) * a(x)                                       [1 / s]
+      5. Volume-Averaged Vessel k_L a:
+             <k_L a> = integral(k_L a * dOmega) / integral((1 - alpha_gas) * dOmega)
+
+    Args:
+        alpha_gas_grid: Gas volume fraction array of shape (D, H, W)
+        u_gas_grid: Gas velocity vector of shape (3, D, H, W)
+        u_liquid_grid: Liquid velocity vector of shape (3, D, H, W)
+        d_bubble: Bubble Sauter diameter [m], scalar or array of shape (D, H, W)
+        diffusivity: Molecular diffusion coefficient D_L [m^2/s] (default 2.1e-9 for O2 in water)
+        fluid_mask: Optional boolean mask of shape (D, H, W)
+        rho_liquid: Liquid density [kg/m^3]
+        mu_liquid: Dynamic liquid viscosity [Pa.s]
+
+    Returns:
+        Dictionary containing mean gas holdup, volume-averaged kla [s^-1, h^-1],
+        mean interfacial area [m^2/m^3], mean kL [m/s], and 3D field arrays.
+    """
+    def to_np(arr):
+        if isinstance(arr, torch.Tensor):
+            return arr.detach().cpu().numpy().astype(np.float64)
+        return np.asarray(arr, dtype=np.float64)
+
+    alpha_g = np.clip(to_np(alpha_gas_grid), 0.0, 1.0)
+    ug = to_np(u_gas_grid)
+    ul = to_np(u_liquid_grid)
+
+    if ug.ndim == 5:
+        ug = ug[0]
+    if ul.ndim == 5:
+        ul = ul[0]
+
+    # Slip velocity magnitude: ||u_gas - u_liq||
+    u_diff = ug - ul
+    u_rel = np.sqrt(np.sum(u_diff**2, axis=0))
+
+    if isinstance(d_bubble, (int, float)):
+        db = float(max(d_bubble, 1e-6))
+    else:
+        db = np.maximum(to_np(d_bubble), 1e-6)
+
+    # Interfacial area a = 6 * alpha_g / d_b
+    a_field = 6.0 * alpha_g / db
+
+    # Higbie penetration theory: k_L = (2 / sqrt(pi)) * sqrt(D_L * u_rel / d_b)
+    # Avoid negative or singular values under sqrt
+    safe_ratio = np.maximum(diffusivity * u_rel / db, 0.0)
+    kl_field = (2.0 / np.sqrt(np.pi)) * np.sqrt(safe_ratio)
+
+    # Local volumetric mass transfer coefficient k_L a [1/s]
+    kla_field = kl_field * a_field
+
+    if fluid_mask is not None:
+        mask = to_np(fluid_mask).astype(bool)
+        alpha_g[~mask] = 0.0
+        a_field[~mask] = 0.0
+        kl_field[~mask] = 0.0
+        kla_field[~mask] = 0.0
+    else:
+        mask = np.ones_like(alpha_g, dtype=bool)
+
+    # Liquid volume fraction
+    alpha_l = np.maximum(1.0 - alpha_g, 1e-6)
+
+    # Volume-weighted averages over the fluid domain
+    n_fluid = np.sum(mask)
+    if n_fluid > 0:
+        mean_gas_holdup = float(np.mean(alpha_g[mask]))
+        mean_interfacial_area = float(np.mean(a_field[mask]))
+        mean_kl = float(np.mean(kl_field[mask]))
+        # Averaged over liquid volume
+        integrated_kla_s = float(np.sum(kla_field[mask]) / np.sum(alpha_l[mask]))
+    else:
+        mean_gas_holdup = 0.0
+        mean_interfacial_area = 0.0
+        mean_kl = 0.0
+        integrated_kla_s = 0.0
+
+    integrated_kla_h = integrated_kla_s * 3600.0
+
+    return {
+        "mean_gas_holdup": mean_gas_holdup,
+        "mean_interfacial_area_m2_m3": mean_interfacial_area,
+        "mean_kl_m_s": mean_kl,
+        "kla_volume_averaged_s_inv": integrated_kla_s,
+        "kla_volume_averaged_h_inv": integrated_kla_h,
+        "kla_field": kla_field,
+        "interfacial_area_field": a_field,
+        "slip_velocity_field": u_rel,
+    }
+
+
+def compute_tracer_mixing_time_t95(
+    tracer_history: Union[np.ndarray, torch.Tensor],
+    time_points: Union[np.ndarray, List[float]],
+    target_band: float = 0.05,
+    fluid_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
+) -> Dict[str, Union[float, List[float]]]:
+    """
+    Computes empirical 95% homogenization mixing time t_95 from transient tracer concentration series
+    (Matching BiRD / NREL experimental tracer washout standard).
+
+    Criterion:
+      Evaluates the spatial Coefficient of Variation: CoV(t) = sigma_c(t) / c_bar(t).
+      t_95 is the earliest time t* such that CoV(t) <= target_band (default 0.05)
+      for all remaining time steps in the trajectory.
+
+    Args:
+        tracer_history: Concentration tensor of shape (T, D, H, W) or (T, N_cells)
+        time_points: Array/list of timestamps [s] of length T
+        target_band: Relative homogenization threshold (0.05 = +/-5% well-mixed band)
+        fluid_mask: Optional boolean mask of active fluid cells
+
+    Returns:
+        Dictionary with t95_s, is_well_mixed boolean, CoV trajectory, and mean concentration curve.
+    """
+    def to_np(arr):
+        if isinstance(arr, torch.Tensor):
+            return arr.detach().cpu().numpy().astype(np.float64)
+        return np.asarray(arr, dtype=np.float64)
+
+    c_series = to_np(tracer_history)
+    t_points = np.asarray(time_points, dtype=np.float64)
+    T = len(t_points)
+
+    if c_series.shape[0] != T:
+        raise ValueError(f"Time dimension mismatch: c_series {c_series.shape[0]} vs time_points {T}")
+
+    if fluid_mask is not None:
+        mask = to_np(fluid_mask).astype(bool)
+    else:
+        mask = None
+
+    mean_conc = []
+    cov_list = []
+
+    for k in range(T):
+        c_k = c_series[k]
+        if mask is not None:
+            c_vals = c_k[mask]
+        else:
+            c_vals = c_k.flatten()
+
+        c_bar = float(np.mean(c_vals))
+        c_std = float(np.std(c_vals))
+        cov = float(c_std / (abs(c_bar) + 1e-12))
+
+        mean_conc.append(c_bar)
+        cov_list.append(cov)
+
+    cov_arr = np.array(cov_list)
+
+    # Find earliest time t* where all subsequent steps stay within target_band
+    is_mixed = False
+    t95_val = float("inf")
+    for idx in range(T):
+        if np.all(cov_arr[idx:] <= target_band):
+            t95_val = float(t_points[idx])
+            is_mixed = True
+            break
+
+    return {
+        "mixing_time_95_s": t95_val,
+        "is_well_mixed": is_mixed,
+        "final_cov": float(cov_arr[-1]) if T > 0 else 1.0,
+        "cov_history": cov_list,
+        "mean_concentration_history": mean_conc,
+        "time_points": t_points.tolist(),
+    }
+
+
+def compute_dimensionless_bioprocess_numbers(
+    N_rpm: float,
+    D_impeller: float,
+    rho_liquid: float = 1000.0,
+    mu_liquid: float = 1e-3,
+    surface_tension: float = 0.0728,  # water-air at 20°C [N/m]
+    d_bubble: float = 0.003,          # [m]
+    u_slip: float = 0.20,             # [m/s]
+    diffusivity: float = 2.1e-9,      # [m^2/s]
+    g: float = 9.81,
+) -> Dict[str, float]:
+    """
+    Computes standard bioprocess dimensionless hydrodynamic numbers
+    (Ported from BiRD dimensionless.py).
+    """
+    n_rev_s = N_rpm / 60.0
+    nu_liquid = mu_liquid / rho_liquid
+
+    # Impeller Reynolds number: Re_imp = rho * N * D^2 / mu
+    Re_imp = float((rho_liquid * n_rev_s * (D_impeller**2)) / mu_liquid)
+
+    # Impeller Froude number: Fr = N^2 * D / g
+    Fr_imp = float(((n_rev_s**2) * D_impeller) / g)
+
+    # Impeller Weber number: We = rho * N^2 * D^3 / sigma
+    We_imp = float((rho_liquid * (n_rev_s**2) * (D_impeller**3)) / surface_tension)
+
+    # Bubble Reynolds number: Re_b = rho * u_slip * d_b / mu
+    Re_bubble = float((rho_liquid * u_slip * d_bubble) / mu_liquid)
+
+    # Bubble Weber number: We_b = rho * u_slip^2 * d_b / sigma
+    We_bubble = float((rho_liquid * (u_slip**2) * d_bubble) / surface_tension)
+
+    # Schmidt number: Sc = nu / D_L
+    Sc = float(nu_liquid / diffusivity)
+
+    # Sherwood number via Higbie: Sh = (2 / sqrt(pi)) * sqrt(Re_b * Sc)
+    Sh = float((2.0 / np.sqrt(np.pi)) * np.sqrt(Re_bubble * Sc))
+
+    # Morton number: Mo = g * mu^4 * Delta_rho / (rho^2 * sigma^3)
+    # For water-air, Delta_rho ~ rho_liquid
+    Mo = float((g * (mu_liquid**4)) / ((rho_liquid**2) * (surface_tension**3)))
+
+    return {
+        "reynolds_impeller": Re_imp,
+        "froude_impeller": Fr_imp,
+        "weber_impeller": We_imp,
+        "reynolds_bubble": Re_bubble,
+        "weber_bubble": We_bubble,
+        "schmidt_number": Sc,
+        "sherwood_number": Sh,
+        "morton_number": Mo,
+    }
+
+
 def evaluate_bioprocess_field_comparison(
     u_pred_grid: Union[np.ndarray, torch.Tensor],
     u_true_grid: Union[np.ndarray, torch.Tensor],
