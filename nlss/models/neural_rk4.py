@@ -8,6 +8,7 @@ Achieves ultra-low (< 0.1%) simulation error by:
 """
 
 from typing import Optional, Tuple
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,43 +18,50 @@ from .fno import SpectralConv2d
 
 class LerayProjection2D(nn.Module):
     """
-    Exact Spectral Leray-Helmholtz Projection operator.
-    Decomposes velocity field u into divergence-free (solenoidal) component:
-        u_divfree = u - grad(Delta^-1 (div(u)))
-    In 2D Fourier space:
-        u_divfree(k) = u(k) - (k_x * u + k_y * v) * k_x / (|k|^2 + eps)
-        v_divfree(k) = v(k) - (k_x * u + k_y * v) * k_y / (|k|^2 + eps)
-    Mathematically guarantees div(u) = 0 to machine precision.
+    Exact Discrete Spectral Leray-Helmholtz Projection operator.
+    Decomposes velocity field u into divergence-free (solenoidal) component using
+    discrete trigonometric transfer functions s_k = sin(2*pi*k/N) / h matching
+    centered finite differences on the 2D grid.
     """
 
-    def __init__(self, eps: float = 1e-8):
+    def __init__(self, eps: float = 1e-8, spacings: Tuple[float, float] = (1.0, 1.0)):
         super().__init__()
         self.eps = eps
+        self.spacings = spacings
 
-    def forward(self, velocity: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        velocity: torch.Tensor,
+        spacings: Optional[Tuple[float, float]] = None,
+    ) -> torch.Tensor:
         # velocity shape: (B, 2, H, W)
         B, C, H, W = velocity.shape
         device = velocity.device
+        dx, dy = spacings or self.spacings
 
         # Compute 2D FFT
         v_fft = torch.fft.fft2(velocity, dim=(-2, -1))
 
-        # Frequency wave-numbers
-        kx = torch.fft.fftfreq(W, device=device).reshape(1, 1, 1, W)
-        ky = torch.fft.fftfreq(H, device=device).reshape(1, 1, 1, H).permute(0, 1, 3, 2)
+        # Discrete trigonometric transfer functions matching centered finite differences
+        iy = torch.arange(H, device=device, dtype=velocity.dtype).reshape(1, 1, H, 1) * (2.0 * math.pi / H)
+        ix = torch.arange(W, device=device, dtype=velocity.dtype).reshape(1, 1, 1, W) * (2.0 * math.pi / W)
+        sy = torch.sin(iy) / dy
+        sx = torch.sin(ix) / dx
 
-        k_sq = kx**2 + ky**2
+        k_sq = sx**2 + sy**2
         k_sq[:, :, 0, 0] = 1.0  # Avoid division by zero at zero frequency
 
         u_fft = v_fft[:, 0:1]
         v_fft_comp = v_fft[:, 1:2]
 
-        # In-plane divergence in Fourier domain: i * (kx * u + ky * v)
-        k_dot_u = kx * u_fft + ky * v_fft_comp
+        div_f = sx * u_fft + sy * v_fft_comp
 
-        # Subtract curl-free gradient component
-        u_divfree_fft = u_fft - kx * k_dot_u / (k_sq + self.eps)
-        v_divfree_fft = v_fft_comp - ky * k_dot_u / (k_sq + self.eps)
+        u_divfree_fft = u_fft - sx * div_f / (k_sq + self.eps)
+        v_divfree_fft = v_fft_comp - sy * div_f / (k_sq + self.eps)
+
+        # Preserve DC (mean) mode
+        u_divfree_fft[:, :, 0, 0] = u_fft[:, :, 0, 0]
+        v_divfree_fft[:, :, 0, 0] = v_fft_comp[:, :, 0, 0]
 
         divfree_fft = torch.cat([u_divfree_fft, v_divfree_fft], dim=1)
         velocity_divfree = torch.fft.ifft2(divfree_fft, dim=(-2, -1)).real
@@ -173,10 +181,11 @@ class NeuralRK4Operator(nn.Module):
             is_wall = (torch.abs(wall_u) < 1e-3)
             next_state[:, 0:2, :, wall] = torch.where(is_wall, wall_u, next_state[:, 0:2, :, wall])
 
-        # Bottom wall
-        wall_b = base[:, 0:2, 0, :]
-        is_wall_b = (torch.abs(wall_b) < 1e-3)
-        next_state[:, 0:2, 0, :] = torch.where(is_wall_b, wall_b, next_state[:, 0:2, 0, :])
+        # Bottom and top walls
+        for wall_y in [0, -1]:
+            wall_b = base[:, 0:2, wall_y, :]
+            is_wall_b = (torch.abs(wall_b) < 1e-3)
+            next_state[:, 0:2, wall_y, :] = torch.where(is_wall_b, wall_b, next_state[:, 0:2, wall_y, :])
 
         # Top wall
         wall_t = base[:, 0:2, -1, :]

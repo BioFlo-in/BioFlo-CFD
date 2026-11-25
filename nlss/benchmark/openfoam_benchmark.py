@@ -100,6 +100,10 @@ class OpenFOAMBenchmarkRunner:
         pressure_snapshots: Optional[np.ndarray] = None,
         is_unseen_condition: bool = False,
         operating_condition_label: str = "Held-Out Verification",
+        tier_b_snapshots: Optional[np.ndarray] = None,
+        tier_b_parameters: Optional[np.ndarray] = None,
+        max_spatial_eval_snapshots: Optional[int] = None,
+        kinematic_pressure: bool = False,
     ) -> Dict[str, Union[Dict, str, float]]:
         """
         Runs the full validation suite across all test snapshots and generates report data.
@@ -114,6 +118,8 @@ class OpenFOAMBenchmarkRunner:
             test_snapshots=snaps,
             test_params=params,
             is_unseen_condition=is_unseen_condition,
+            tier_b_snapshots=tier_b_snapshots,
+            tier_b_params=tier_b_parameters,
         )
 
         # 2. Comprehensive Multi-Norm Velocity Metrics across all snapshots
@@ -121,26 +127,32 @@ class OpenFOAMBenchmarkRunner:
             p_tensor = torch.from_numpy(params).float().to(next(self.model.parameters()).device)
             pred_flat = self.model(p_tensor).detach().cpu().numpy()
 
-        global_metrics = compute_comprehensive_velocity_metrics(pred_flat, snaps)
+        D, H, W = self.grid_shape
+        n_active = int(self.fluid_mask.sum()) if self.fluid_mask is not None else (D * H * W)
+        n_channels = max(3, snaps.shape[1] // max(n_active, 1))
+        pred_ch = pred_flat.reshape(N_snaps, n_channels, n_active)[:, :3, :]
+        snaps_ch = snaps.reshape(N_snaps, n_channels, n_active)[:, :3, :]
+        global_metrics = compute_comprehensive_velocity_metrics(pred_ch, snaps_ch, channel_dim=1)
 
         # 3. Hydrodynamic Regional ROI Decomposition (evaluated on spatial grids)
-        D, H, W = self.grid_shape
         roi_results_list = []
         div_metrics_list = []
         vort_metrics_list = []
         momentum_metrics_list = []
+        true_momentum_metrics_list = []
         bioprocess_metrics_list = []
 
         fluid_mask_tensor = torch.from_numpy(self.fluid_mask).bool() if self.fluid_mask is not None else None
+        eval_count = N_snaps if max_spatial_eval_snapshots is None else min(N_snaps, max_spatial_eval_snapshots)
 
-        for i in range(min(N_snaps, 10)):  # Evaluate up to 10 snapshots for 3D spatial field metrics
+        for i in range(eval_count):  # Evaluate all snapshots by default
             p_i = torch.from_numpy(params[i:i+1]).float().to(next(self.model.parameters()).device)
             pred_grid = self.model.reconstruct_grid(
                 p_i,
                 grid_shape=self.grid_shape,
-                channels=3,
+                channels=n_channels,
                 fluid_mask=fluid_mask_tensor,
-            )[0].detach().cpu().numpy()
+            )[0, :3].detach().cpu().numpy()
 
             # True grid
             true_grid = np.zeros((3, D, H, W), dtype=np.float64)
@@ -150,7 +162,7 @@ class OpenFOAMBenchmarkRunner:
                 for c in range(3):
                     true_grid[c].reshape(-1)[mask_flat] = snaps[i, c * n_act:(c + 1) * n_act]
             else:
-                true_grid = snaps[i].reshape(3, D, H, W)
+                true_grid = snaps[i].reshape(n_channels, D, H, W)[:3]
 
             # A. ROI evaluation
             roi_eval = evaluate_roi_metrics(pred_grid, true_grid, self.rois, channel_dim=0)
@@ -174,8 +186,15 @@ class OpenFOAMBenchmarkRunner:
                 mom_m = compute_momentum_residual_steady(
                     pred_grid, p_grid, rho=1000.0, nu=1e-6,
                     dx=self.dx, dy=self.dy, dz=self.dz, fluid_mask=self.fluid_mask,
+                    kinematic_pressure=kinematic_pressure,
                 )
                 momentum_metrics_list.append(mom_m)
+                true_mom_m = compute_momentum_residual_steady(
+                    true_grid, p_grid, rho=1000.0, nu=1e-6,
+                    dx=self.dx, dy=self.dy, dz=self.dz, fluid_mask=self.fluid_mask,
+                    kinematic_pressure=kinematic_pressure,
+                )
+                true_momentum_metrics_list.append(true_mom_m)
 
             # E. Bioprocess Engineering Quantities
             rpm_val = float(params[i, -1]) if params.ndim == 2 and params.shape[1] >= 2 else 300.0
@@ -212,6 +231,8 @@ class OpenFOAMBenchmarkRunner:
         if momentum_metrics_list:
             physics_summary["momentum_relative_residual"] = float(np.mean([m["relative_momentum_residual"] for m in momentum_metrics_list]))
             physics_summary["momentum_residual_norm"] = float(np.mean([m["momentum_residual_norm"] for m in momentum_metrics_list]))
+        if true_momentum_metrics_list:
+            physics_summary["true_cfd_momentum_relative_residual"] = float(np.mean([m["relative_momentum_residual"] for m in true_momentum_metrics_list]))
 
         # Bioprocess Summary & Mixing Time
         rpm_ref = float(params[0, -1]) if params.ndim == 2 and params.shape[1] >= 2 else 300.0
@@ -229,6 +250,9 @@ class OpenFOAMBenchmarkRunner:
             "kla_predicted_h_inv": float(np.mean([b["kla_predicted_h_inv"] for b in bioprocess_metrics_list])),
             "kla_true_cfd_h_inv": float(np.mean([b["kla_true_cfd_h_inv"] for b in bioprocess_metrics_list])),
             "kla_relative_error": float(np.mean([b["kla_relative_error"] for b in bioprocess_metrics_list])),
+            "mean_shear_rate_predicted_s_inv": float(np.mean([b["mean_shear_rate_predicted_s_inv"] for b in bioprocess_metrics_list])),
+            "mean_shear_rate_true_cfd_s_inv": float(np.mean([b["mean_shear_rate_true_cfd_s_inv"] for b in bioprocess_metrics_list])),
+            "mean_shear_rate_relative_error": float(np.mean([b["mean_shear_rate_relative_error"] for b in bioprocess_metrics_list])),
             "max_shear_rate_predicted_s_inv": float(np.mean([b["max_shear_rate_predicted_s_inv"] for b in bioprocess_metrics_list])),
             "max_shear_rate_true_cfd_s_inv": float(np.mean([b["max_shear_rate_true_cfd_s_inv"] for b in bioprocess_metrics_list])),
             "max_shear_rate_relative_error": float(np.mean([b["max_shear_rate_relative_error"] for b in bioprocess_metrics_list])),

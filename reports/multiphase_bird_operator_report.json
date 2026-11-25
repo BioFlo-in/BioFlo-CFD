@@ -1,5 +1,6 @@
 {
   "benchmark_name": "BiRD_Multiphase_Neural_POD_Benchmark",
+  "data_source": "analytical_divergence_free_proxy",
   "reactor_spec": {
     "tank_diameter_m": 0.3,
     "impeller_diameter_m": 0.1,
@@ -11,27 +12,29 @@
       300.0,
       600.0
     ],
-    "test_rpm": 450.0
+    "test_rpm": 450.0,
+    "n_test_snapshots": 15
   },
   "neural_pod_operator": {
     "n_modes": 16,
+    "channel_normalized": true,
     "cumulative_energy_pct": 100.0,
-    "theoretical_reconstruction_accuracy_pct": 99.99999999999841
+    "theoretical_reconstruction_accuracy_pct": 99.99999999999937
   },
   "tier_c_generalization_results": {
-    "velocity_relative_l2_error": 0.1876692332114429,
-    "velocity_r2_score": 0.964604449614259,
-    "vector_cosine_similarity": 0.9141285946481702,
-    "gas_holdup_relative_l2_error": 0.1843881402514641
+    "velocity_relative_l2_error": 0.03624875070505974,
+    "velocity_r2_score": 0.998686025704093,
+    "vector_cosine_similarity": 0.9998297903530836,
+    "gas_holdup_relative_l2_error": 0.18354846448073547
   },
   "first_principles_qois": {
-    "kla_true_h_inv": 167.80561319713308,
-    "kla_predicted_h_inv": 183.6960804094791,
-    "kla_relative_error": 0.09469568335403869,
-    "mean_gas_holdup_true": 0.03406906066189145,
-    "mean_gas_holdup_pred": 0.03408177779299509,
+    "kla_true_h_inv": 200.3833530469941,
+    "kla_predicted_h_inv": 200.49536258557103,
+    "kla_relative_error": 0.0005589762666096239,
+    "mean_gas_holdup_true": 0.03406906066189146,
+    "mean_gas_holdup_pred": 0.034065657900685234,
     "mean_interfacial_area_true_m2_m3": 68.1381213237829,
-    "mean_interfacial_area_pred_m2_m3": 68.16355558599018,
+    "mean_interfacial_area_pred_m2_m3": 68.13131580137045,
     "dimensionless_numbers": {
       "reynolds_impeller": 75000.00000000001,
       "froude_impeller": 0.573394495412844,

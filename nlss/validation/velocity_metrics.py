@@ -88,6 +88,19 @@ def component_wise_errors(
 
     if p.shape[0] < 3 or t.shape[0] < 3:
         raise ValueError(f"Expected at least 3 channels for 3D velocity, got shape {p.shape}")
+    if p.ndim == 2 and p.shape[0] > 8:
+        raise ValueError(
+            f"channel_dim={channel_dim} has size {p.shape[0]} on a 2D array; "
+            "reshape flattened arrays to (B, channels, N_active) before calling vector_angular_metrics."
+        )
+
+    if p.shape[0] < 3 or t.shape[0] < 3:
+        raise ValueError(f"Expected at least 3 channels for 3D velocity, got shape {p.shape}")
+    if p.ndim == 2 and p.shape[0] > 8:
+        raise ValueError(
+            f"channel_dim={channel_dim} has size {p.shape[0]} on a 2D array; "
+            "reshape flattened arrays to (B, channels, N_active) before calling component_wise_errors."
+        )
 
     ux_p, uy_p, uz_p = p[0], p[1], p[2]
     ux_t, uy_t, uz_t = t[0], t[1], t[2]
@@ -130,6 +143,14 @@ def vector_angular_metrics(
 
     p = np.moveaxis(p, channel_dim, 0)
     t = np.moveaxis(t, channel_dim, 0)
+
+    if p.shape[0] < 3 or t.shape[0] < 3:
+        raise ValueError(f"Expected at least 3 channels for 3D velocity, got shape {p.shape}")
+    if p.ndim == 2 and p.shape[0] > 8:
+        raise ValueError(
+            f"channel_dim={channel_dim} has size {p.shape[0]} on a 2D array; "
+            "reshape flattened arrays to (B, channels, N_active) before calling vector_angular_metrics."
+        )
 
     mag_p = np.sqrt(p[0]**2 + p[1]**2 + p[2]**2)
     mag_t = np.sqrt(t[0]**2 + t[1]**2 + t[2]**2)

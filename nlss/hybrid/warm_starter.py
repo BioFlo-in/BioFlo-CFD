@@ -44,8 +44,9 @@ class OpenFOAMHybridAccelerator:
         3. Writes prediction into case_dir/<next_time>/ as initial guess.
         4. OpenFOAM solver starts from this guess, converging in significantly fewer iterations.
         """
+        curr_t = float(current_time)
         curr_time_dir = self.case_dir / (
-            f"{int(current_time)}" if current_time.is_integer() else f"{current_time:.4f}".rstrip("0").rstrip(".")
+            f"{int(curr_t)}" if curr_t.is_integer() else f"{curr_t:.4f}".rstrip("0").rstrip(".")
         )
 
         u_file = curr_time_dir / "U"
@@ -54,15 +55,23 @@ class OpenFOAMHybridAccelerator:
         if not u_file.exists() or not p_file.exists():
             raise FileNotFoundError(f"Missing U or p file in {curr_time_dir}")
 
-        u_field = read_foam_field_file(u_file, current_time).internal_field
-        p_field = read_foam_field_file(p_file, current_time).internal_field
+        u_field = read_foam_field_file(u_file, curr_t).internal_field
+        p_field = read_foam_field_file(p_file, curr_t).internal_field
 
         if grid_shape is not None:
-            H, W = grid_shape
-            ux = u_field[:, 0].reshape(1, 1, H, W)
-            uy = u_field[:, 1].reshape(1, 1, H, W)
-            p = p_field.reshape(1, 1, H, W)
-            state_tensor = torch.from_numpy(np.concatenate([ux, uy, p], axis=1)).float()
+            if len(grid_shape) == 3:
+                D, H, W = grid_shape
+                ux = u_field[:, 0].reshape(1, 1, D, H, W)
+                uy = u_field[:, 1].reshape(1, 1, D, H, W)
+                uz = u_field[:, 2].reshape(1, 1, D, H, W)
+                p = p_field.reshape(1, 1, D, H, W)
+                state_tensor = torch.from_numpy(np.concatenate([ux, uy, uz, p], axis=1)).float()
+            else:
+                H, W = grid_shape
+                ux = u_field[:, 0].reshape(1, 1, H, W)
+                uy = u_field[:, 1].reshape(1, 1, H, W)
+                p = p_field.reshape(1, 1, H, W)
+                state_tensor = torch.from_numpy(np.concatenate([ux, uy, p], axis=1)).float()
         else:
             state_tensor = torch.from_numpy(
                 np.column_stack([u_field[:, :2], p_field]).T
@@ -71,8 +80,13 @@ class OpenFOAMHybridAccelerator:
         # Predict next state with AI surrogate
         pred_next = self.engine.predict_next_state(state_tensor).cpu().numpy()
 
-        if grid_shape is not None:
-            H, W = grid_shape
+        if grid_shape is not None and len(grid_shape) == 3:
+            pred_ux = pred_next[0].flatten()
+            pred_uy = pred_next[1].flatten()
+            pred_uz = pred_next[2].flatten()
+            pred_p = pred_next[3].flatten()
+            u_vec = np.column_stack([pred_ux, pred_uy, pred_uz])
+        elif grid_shape is not None:
             pred_ux = pred_next[0].flatten()
             pred_uy = pred_next[1].flatten()
             pred_p = pred_next[2].flatten()

@@ -31,25 +31,69 @@ class LerayProjection3D(nn.Module):
     Decomposes any 3D velocity field u into an exact solenoidal (divergence-free) component
     and an irrotational gradient component:
         u = u_sol + grad(phi)   where   div(u_sol) = 0
-    
-    Uses discrete trigonometric transfer functions s = sin(2*pi*k/N) exactly matching
-    the discrete finite-difference / finite-volume stencil on the 3D grid.
-    Mathematically guarantees discrete grid divergence div(u) = 0 to float32 machine precision (~1e-6).
+
+    Uses discrete trigonometric transfer functions s_i = sin(2*pi*k_i/N_i) / h_i matching
+    the anisotropic discrete centered finite-difference / finite-volume stencil on the 3D grid.
     """
 
-    def __init__(self, eps: float = 1e-8):
+    def __init__(
+        self,
+        eps: float = 1e-8,
+        spacings: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+        mask_projection_iters: int = 3,
+    ):
         super().__init__()
         self.eps = eps
+        self.spacings = spacings
+        self.mask_projection_iters = max(1, mask_projection_iters)
+
+    def _spectral_project(self, velocity: torch.Tensor, dx: float, dy: float, dz: float) -> torch.Tensor:
+        B, C, D, H, W = velocity.shape
+        device = velocity.device
+
+        v_fft = torch.fft.fftn(velocity, dim=(-3, -2, -1))
+
+        # Discrete trigonometric frequency transfer functions scaled by physical cell spacings
+        iz = torch.arange(D, device=device, dtype=velocity.dtype).reshape(1, 1, D, 1, 1) * (2.0 * math.pi / D)
+        iy = torch.arange(H, device=device, dtype=velocity.dtype).reshape(1, 1, 1, H, 1) * (2.0 * math.pi / H)
+        ix = torch.arange(W, device=device, dtype=velocity.dtype).reshape(1, 1, 1, 1, W) * (2.0 * math.pi / W)
+
+        sz = torch.sin(iz) / dz
+        sy = torch.sin(iy) / dy
+        sx = torch.sin(ix) / dx
+
+        denom = sx**2 + sy**2 + sz**2
+        denom[:, :, 0, 0, 0] = 1.0  # Avoid zero division at DC frequency
+
+        u_fft = v_fft[:, 0:1]
+        v_fft_comp = v_fft[:, 1:2]
+        w_fft = v_fft[:, 2:3]
+
+        div_f = sx * u_fft + sy * v_fft_comp + sz * w_fft
+
+        u_sol_fft = u_fft - sx * div_f / (denom + self.eps)
+        v_sol_fft = v_fft_comp - sy * div_f / (denom + self.eps)
+        w_sol_fft = w_fft - sz * div_f / (denom + self.eps)
+
+        # Preserve DC (mean) mode
+        u_sol_fft[:, :, 0, 0, 0] = u_fft[:, :, 0, 0, 0]
+        v_sol_fft[:, :, 0, 0, 0] = v_fft_comp[:, :, 0, 0, 0]
+        w_sol_fft[:, :, 0, 0, 0] = w_fft[:, :, 0, 0, 0]
+
+        sol_fft = torch.cat([u_sol_fft, v_sol_fft, w_sol_fft], dim=1)
+        return torch.fft.ifftn(sol_fft, dim=(-3, -2, -1)).real
 
     def forward(
         self,
         velocity: torch.Tensor,
         fluid_mask: Optional[torch.Tensor] = None,
+        spacings: Optional[Tuple[float, float, float]] = None,
     ) -> torch.Tensor:
         """
         Args:
             velocity: Tensor of shape (B, 3, D, H, W) or (3, D, H, W).
             fluid_mask: Optional boolean or float mask of shape (D, H, W) or (1, 1, D, H, W).
+            spacings: Optional physical spacings (dx, dy, dz).
         Returns:
             Divergence-free velocity of same shape as input.
         """
@@ -62,51 +106,16 @@ class LerayProjection3D(nn.Module):
         if C != 3:
             raise ValueError(f"LerayProjection3D requires 3 velocity components (u_x, u_y, u_z), got {C}")
 
-        device = velocity.device
+        dx, dy, dz = spacings or self.spacings
 
-        # Compute 3D FFT over spatial dimensions (D, H, W)
-        v_fft = torch.fft.fftn(velocity, dim=(-3, -2, -1))
-
-        # Discrete trigonometric frequency transfer functions: s_k = sin(2*pi*k/N)
-        iz = torch.arange(D, device=device).reshape(1, 1, D, 1, 1) * (2.0 * math.pi / D)
-        iy = torch.arange(H, device=device).reshape(1, 1, 1, H, 1) * (2.0 * math.pi / H)
-        ix = torch.arange(W, device=device).reshape(1, 1, 1, 1, W) * (2.0 * math.pi / W)
-
-        sz = torch.sin(iz)
-        sy = torch.sin(iy)
-        sx = torch.sin(ix)
-
-        # Denominator matching discrete Laplacian
-        denom = sx**2 + sy**2 + sz**2
-        denom[:, :, 0, 0, 0] = 1.0  # Avoid zero division at DC frequency
-
-        u_fft = v_fft[:, 0:1]
-        v_fft_comp = v_fft[:, 1:2]
-        w_fft = v_fft[:, 2:3]
-
-        # Discrete divergence in Fourier domain
-        div_f = sx * u_fft + sy * v_fft_comp + sz * w_fft
-
-        # Subtract gradient projection: u_sol = u - s * div_f / denom
-        u_sol_fft = u_fft - sx * div_f / (denom + self.eps)
-        v_sol_fft = v_fft_comp - sy * div_f / (denom + self.eps)
-        w_sol_fft = w_fft - sz * div_f / (denom + self.eps)
-
-        # Preserve DC (mean) mode
-        u_sol_fft[:, :, 0, 0, 0] = u_fft[:, :, 0, 0, 0]
-        v_sol_fft[:, :, 0, 0, 0] = v_fft_comp[:, :, 0, 0, 0]
-        w_sol_fft[:, :, 0, 0, 0] = w_fft[:, :, 0, 0, 0]
-
-        sol_fft = torch.cat([u_sol_fft, v_sol_fft, w_sol_fft], dim=1)
-        u_sol = torch.fft.ifftn(sol_fft, dim=(-3, -2, -1)).real
-
-        # Zero out solid/boundary regions if fluid_mask is provided
         if fluid_mask is not None:
-            if fluid_mask.ndim == 3:
-                mask = fluid_mask.view(1, 1, D, H, W).float()
-            else:
-                mask = fluid_mask.float()
-            u_sol = u_sol * mask
+            mask = fluid_mask.view(1, 1, D, H, W).to(dtype=velocity.dtype, device=velocity.device) if fluid_mask.ndim == 3 else fluid_mask.to(dtype=velocity.dtype, device=velocity.device)
+            u_sol = velocity * mask
+            # Alternating projections reduce divergence spikes at fluid-solid boundaries
+            for _ in range(self.mask_projection_iters):
+                u_sol = self._spectral_project(u_sol, dx, dy, dz) * mask
+        else:
+            u_sol = self._spectral_project(velocity, dx, dy, dz)
 
         if was_4d:
             u_sol = u_sol.squeeze(0)
@@ -199,6 +208,24 @@ class AutoregressiveStateEvolutionOperator(nn.Module):
             nn.Linear(hidden_dim, n_modes),
         )
 
+        # Running/calibrated normalization statistics so (params, dt) and (a, v) share O(1) scale
+        self.register_buffer("cond_mean", torch.zeros(cond_in_dim))
+        self.register_buffer("cond_std", torch.ones(cond_in_dim))
+        self.register_buffer("state_scale", torch.ones(state_in_dim))
+
+    def set_normalization_stats(
+        self,
+        cond_mean: torch.Tensor,
+        cond_std: torch.Tensor,
+        state_scale: Optional[torch.Tensor] = None,
+    ):
+        """Registers O(1) standardization statistics for condition [params, dt] and state [a, v]."""
+        dev = self.cond_mean.device
+        self.cond_mean.copy_(cond_mean.to(dev).reshape(-1))
+        self.cond_std.copy_(torch.clamp(cond_std.to(dev).reshape(-1), min=1e-6))
+        if state_scale is not None:
+            self.state_scale.copy_(torch.clamp(state_scale.to(dev).reshape(-1), min=1e-6))
+
     def forward(
         self,
         a_curr: torch.Tensor,
@@ -225,12 +252,13 @@ class AutoregressiveStateEvolutionOperator(nn.Module):
         # Finite-difference velocity estimate
         v_curr = (a_curr - a_prev) / (dt + 1e-6)
 
-        # Build condition embedding [params, dt]
+        # Build normalized condition embedding [params, dt]
         cond_raw = torch.cat([params, dt], dim=-1)
-        cond_emb = self.cond_net(cond_raw)
+        cond_norm = (cond_raw - self.cond_mean) / self.cond_std
+        cond_emb = self.cond_net(cond_norm)
 
-        # Encode state [a_curr, v_curr]
-        state_in = torch.cat([a_curr, v_curr], dim=-1)
+        # Encode normalized state [a_curr, v_curr]
+        state_in = torch.cat([a_curr, v_curr], dim=-1) / self.state_scale
         h = self.input_proj(state_in)
 
         # Pass through residual FiLM blocks
@@ -268,10 +296,12 @@ class LearnedNumericalEvolutionEngine(nn.Module):
         num_blocks: int = 3,
         dissipative_damping: float = 0.01,
         enforce_projection_in_loop: bool = True,
+        spacings: Tuple[float, float, float] = (1.0, 1.0, 1.0),
     ):
         super().__init__()
         self.grid_shape = grid_shape
         self.channels = channels
+        self.spacings = spacings
         D, H, W = grid_shape
         self.spatial_dim = channels * D * H * W
 
@@ -305,7 +335,7 @@ class LearnedNumericalEvolutionEngine(nn.Module):
             num_blocks=num_blocks,
             dissipative_damping=dissipative_damping,
         )
-        self.leray_proj = LerayProjection3D()
+        self.leray_proj = LerayProjection3D(spacings=spacings)
 
     def decode_modes(self, a: torch.Tensor) -> torch.Tensor:
         """
@@ -359,10 +389,10 @@ class LearnedNumericalEvolutionEngine(nn.Module):
 
         # 3. Enforce exact solenoidal projection for velocity & bounded holdup for gas
         if self.channels == 3:
-            u_clean = self.leray_proj(u_raw, fluid_mask=fluid_mask)
+            u_clean = self.leray_proj(u_raw, fluid_mask=fluid_mask, spacings=self.spacings)
         elif self.channels >= 4:
             # Velocity in channels 0:3
-            u_vel_sol = self.leray_proj(u_raw[:, :3], fluid_mask=fluid_mask)
+            u_vel_sol = self.leray_proj(u_raw[:, :3], fluid_mask=fluid_mask, spacings=self.spacings)
             # Gas holdup in channel 3: clamp to [0, 1]
             alpha_g = torch.clamp(u_raw[:, 3:4], min=0.0, max=1.0)
             if fluid_mask is not None:
@@ -414,6 +444,8 @@ class LearnedNumericalEvolutionEngine(nn.Module):
 
         curr_a = a_0
         prev_a = a_prev
+        dx, dy, dz = self.spacings
+        mask_bool = fluid_mask.bool() if fluid_mask is not None else None
 
         for step_idx in range(num_steps):
             next_a, next_u = self.step(curr_a, prev_a, dt, params, fluid_mask=fluid_mask)
@@ -421,20 +453,31 @@ class LearnedNumericalEvolutionEngine(nn.Module):
             if return_fields:
                 fields_list.append(next_u.unsqueeze(0))
 
-            # Compute kinetic energy: 0.5 * integral ||u||^2 dV over velocity channels
+            # Compute kinetic energy: 0.5 * mean ||u||^2 over active fluid domain
             u_vel = next_u[:, :3]
-            ke = 0.5 * torch.mean(torch.sum(u_vel**2, dim=1)).item()
+            ke_field = 0.5 * torch.sum(u_vel**2, dim=1)
+            if mask_bool is not None:
+                ke = torch.mean(ke_field[:, mask_bool]).item()
+            else:
+                ke = torch.mean(ke_field).item()
             ke_list.append(ke)
 
-            # Compute discrete divergence in spatial domain
-            du_dx = torch.gradient(u_vel[:, 0], dim=-1)[0]
-            dv_dy = torch.gradient(u_vel[:, 1], dim=-2)[0]
-            dw_dz = torch.gradient(u_vel[:, 2], dim=-3)[0]
-            div_val = torch.mean(torch.abs(du_dx + dv_dy + dw_dz)).item()
+            # Compute physical discrete divergence using true grid spacings (dx, dy, dz)
+            du_dx = torch.gradient(u_vel[:, 0], spacing=dx, dim=-1)[0]
+            dv_dy = torch.gradient(u_vel[:, 1], spacing=dy, dim=-2)[0]
+            dw_dz = torch.gradient(u_vel[:, 2], spacing=dz, dim=-3)[0]
+            div_field = torch.abs(du_dx + dv_dy + dw_dz)
+            if mask_bool is not None:
+                div_val = torch.mean(div_field[:, mask_bool]).item()
+            else:
+                div_val = torch.mean(div_field).item()
             div_list.append(div_val)
 
             if self.channels >= 4:
-                alpha_val = torch.mean(next_u[:, 3]).item()
+                if mask_bool is not None:
+                    alpha_val = torch.mean(next_u[:, 3][:, mask_bool]).item()
+                else:
+                    alpha_val = torch.mean(next_u[:, 3]).item()
                 holdup_list.append(alpha_val)
 
             # Advance pointers

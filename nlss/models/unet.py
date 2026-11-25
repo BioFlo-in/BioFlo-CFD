@@ -113,5 +113,15 @@ class ResUNetCFD(nn.Module):
         delta = self.outc(d)
 
         if self.residual_connection:
-            return identity + delta
+            if self.in_channels == self.out_channels:
+                return identity + delta
+            elif self.in_channels > self.out_channels:
+                return identity[:, :self.out_channels] + delta
+            else:
+                pad = torch.zeros(
+                    (identity.shape[0], self.out_channels - self.in_channels, *identity.shape[2:]),
+                    dtype=identity.dtype,
+                    device=identity.device,
+                )
+                return torch.cat([identity, pad], dim=1) + delta
         return delta

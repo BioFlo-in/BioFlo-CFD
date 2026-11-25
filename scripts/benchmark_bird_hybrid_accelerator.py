@@ -1,16 +1,8 @@
 """
 BioFlo-CFD & BiRD: Phase 4 Closed-Loop Hybrid Solver Acceleration Benchmark.
-Benchmarks the time-to-solution and linear solver iteration reduction when using
-NLSS sub-2ms surrogate predictions as a warm-start preconditioner for BiRD OpenFOAM solvers.
-
-Benchmark Comparison:
-  Baseline (Cold Start):
-    Uniform static zero initial condition (U = 0, alpha = static).
-    High initial continuity and momentum residuals (> 1.0) requiring 50-120 Poisson iterations.
-  Accelerated (NLSS Warm Start):
-    AI-predicted continuous multi-field state (U.liquid, U.gas, alpha.gas, p_rgh) injected at t=0.
-    Initial residual drops by 3 orders of magnitude (< 10^-3) requiring only 2-5 Poisson iterations.
-    Result: 5x to 15x net speedup in time-to-solution.
+Benchmarks actual matrix-free 3D discrete Poisson Conjugate Gradient (CG) convergence
+(Cold Start x_0=0 vs. trained NLSS Warm Start) and exports valid OpenFOAM warm-start fields.
+Note: Uses an actual 3D discrete Poisson CG solver proxy when OpenFOAM binaries are absent.
 """
 
 import json
@@ -24,77 +16,160 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from nlss.dataset.bird_mesh_adapter import StirredTankSpec, BiRDMeshAdapter
+from nlss.dataset.bird_mesh_adapter import StirredTankSpec
 from nlss.io.foam_writer import export_multiphase_simulation_state_to_openfoam
 from nlss.models.neural_pod_operator_3d import NeuralPODOperator3D
 from scripts.train_multiphase_bird_operator import generate_synthetic_bird_multiphase_snapshots
 
 
-def simulate_openfoam_linear_solver(
-    initial_residual: float,
-    target_residual: float = 1e-4,
-    convergence_rate: float = 0.88,
-    cost_per_iter_ms: float = 4.2,
+def _apply_discrete_neg_laplacian_3d(
+    p: np.ndarray,
+    dx: float,
+    dy: float,
+    dz: float,
+    fluid_mask: np.ndarray,
+) -> np.ndarray:
+    """
+    Applies the symmetric positive-semidefinite discrete operator A*p = -div(grad(p))
+    on the active 3D fluid domain with homogeneous Neumann BCs at solid walls.
+    """
+    out = np.zeros_like(p)
+    inv_dx2 = 1.0 / (dx * dx)
+    inv_dy2 = 1.0 / (dy * dy)
+    inv_dz2 = 1.0 / (dz * dz)
+
+    # X-direction flux across active fluid faces
+    fx = fluid_mask[:, :, :-1] & fluid_mask[:, :, 1:]
+    diff_x = (p[:, :, 1:] - p[:, :, :-1]) * fx * inv_dx2
+    out[:, :, :-1] -= diff_x
+    out[:, :, 1:] += diff_x
+
+    # Y-direction flux
+    fy = fluid_mask[:, :-1, :] & fluid_mask[:, 1:, :]
+    diff_y = (p[:, 1:, :] - p[:, :-1, :]) * fy * inv_dy2
+    out[:, :-1, :] -= diff_y
+    out[:, 1:, :] += diff_y
+
+    # Z-direction flux
+    fz = fluid_mask[:-1, :, :] & fluid_mask[1:, :, :]
+    diff_z = (p[1:, :, :] - p[:-1, :, :]) * fz * inv_dz2
+    out[:-1, :, :] -= diff_z
+    out[1:, :, :] += diff_z
+
+    return out * fluid_mask
+
+
+def solve_3d_poisson_cg(
+    rhs: np.ndarray,
+    x0: np.ndarray,
+    dx: float,
+    dy: float,
+    dz: float,
+    fluid_mask: np.ndarray,
+    tol: float = 1e-6,
+    max_iters: int = 500,
 ) -> dict:
     """
-    Simulates the Krylov / GAMG pressure Poisson linear solver iteration decay:
-        residual(k) = initial_residual * (convergence_rate)^k
+    Actual matrix-free Conjugate Gradient solver for 3D discrete pressure Poisson equation:
+        -div(grad(p)) = rhs
     """
-    res = initial_residual
-    n_iters = 0
     t0 = time.perf_counter()
-    while res > target_residual and n_iters < 200:
-        res *= convergence_rate
-        n_iters += 1
-    elapsed_ms = n_iters * cost_per_iter_ms
+    x = (x0 * fluid_mask).astype(np.float64)
+    b = (rhs * fluid_mask).astype(np.float64)
+    b_norm = float(np.linalg.norm(b)) + 1e-12
+
+    r = b - _apply_discrete_neg_laplacian_3d(x, dx, dy, dz, fluid_mask)
+    initial_res_norm = float(np.linalg.norm(r))
+    initial_rel_res = initial_res_norm / b_norm
+
+    p_dir = r.copy()
+    rz_old = float(np.sum(r * r))
+    iters = 0
+
+    while (np.sqrt(rz_old) / b_norm) > tol and iters < max_iters:
+        Ap = _apply_discrete_neg_laplacian_3d(p_dir, dx, dy, dz, fluid_mask)
+        denom = float(np.sum(p_dir * Ap))
+        if denom < 1e-15:
+            break
+        alpha = rz_old / denom
+        x = x + alpha * p_dir
+        r = r - alpha * Ap
+        rz_new = float(np.sum(r * r))
+        beta = rz_new / (rz_old + 1e-30)
+        p_dir = r + beta * p_dir
+        rz_old = rz_new
+        iters += 1
+
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    final_rel_res = float(np.sqrt(rz_old) / b_norm)
     return {
-        "iterations": n_iters,
-        "final_residual": float(res),
+        "iterations": iters,
+        "initial_rel_residual": initial_rel_res,
+        "final_rel_residual": final_rel_res,
         "solver_time_ms": elapsed_ms,
+        "solution": x,
     }
 
 
 def main():
     print("=" * 80)
     print("BioFlo-CFD & BiRD: Phase 4 Closed-Loop Hybrid Accelerator Benchmark")
+    print("  [Solver Mode: Actual 3D Matrix-Free Discrete Poisson CG Benchmark]")
     print("=" * 80)
 
     spec = StirredTankSpec(Dt=0.30, Da=0.10, H=0.45, C=[0.15], nbaffles=4)
     grid_shape = (16, 16, 16)
     D, H, W = grid_shape
+    dx, dy, dz = spec.Dt / W, spec.Dt / H, spec.H / D
     case_dir = BASE_DIR / "openfoam_cases" / "bird_stirred_tank"
 
-    # 1. Train fast 4-channel Neural POD Operator
+    # 1. Train 4-channel Neural POD Operator on [300, 600] RPM
     train_rpms = [300.0, 600.0]
     test_rpm = 450.0
 
-    print(f"\n[1/4] Calibrating fast Neural POD Operator on BiRD multiphase fields...")
+    print(f"\n[1/4] Training 4-channel Neural POD Operator on BiRD multiphase fields...")
     U_train, Alpha_train, p_train, mask = generate_synthetic_bird_multiphase_snapshots(
         spec, grid_shape=grid_shape, n_snapshots_per_rpm=15, rpm_list=train_rpms, seed=42
     )
+    U_test, Alpha_test, p_test, _ = generate_synthetic_bird_multiphase_snapshots(
+        spec, grid_shape=grid_shape, n_snapshots_per_rpm=15, rpm_list=[test_rpm], seed=99
+    )
+
     X_train = np.concatenate([U_train, Alpha_train], axis=1)
     N_train, channels, D, H, W = X_train.shape
+    channel_scales = np.maximum(np.std(X_train, axis=(0, 2, 3, 4)), 1e-4)
+    X_train_scaled = X_train / channel_scales.reshape(1, 4, 1, 1, 1)
     spatial_dim = channels * D * H * W
 
     operator = NeuralPODOperator3D(n_modes=12, param_dim=1, hidden_dim=64, num_layers=3)
-    operator.calibrate_basis(X_train.reshape(N_train, spatial_dim), n_modes=12, solver="exact")
+    operator.calibrate_basis(X_train_scaled.reshape(N_train, spatial_dim), n_modes=12, solver="exact")
     operator.set_training_parameters(p_train, strict=False)
 
-    # 2. Run fast sub-2ms AI inference for unobserved 450 RPM
+    # Actually train the MLP before benchmarking
+    optimizer = torch.optim.AdamW(operator.mlp.parameters(), lr=2e-3, weight_decay=1e-5)
+    p_train_t = torch.tensor(p_train, dtype=torch.float32)
+    X_train_t = torch.tensor(X_train_scaled.reshape(N_train, spatial_dim), dtype=torch.float32)
+    a_opt_train = torch.matmul(X_train_t - operator.mean_field, operator.basis_matrix.T)
+    for _ in range(250):
+        optimizer.zero_grad()
+        loss = torch.nn.functional.mse_loss(operator.predict_coefficients(p_train_t), a_opt_train)
+        loss.backward()
+        optimizer.step()
+    operator.eval()
+
+    # 2. Run fast AI inference for unobserved 450 RPM
     print(f"\n[2/4] Executing sub-2ms AI surrogate prediction for held-out {test_rpm} RPM...")
     p_query = torch.tensor([[test_rpm]], dtype=torch.float32)
 
-    # Measure exact inference latency over 50 calls
     t_start = time.perf_counter()
     for _ in range(50):
         with torch.no_grad():
-            feat = operator.fourier_embed(p_query)
-            a_pred = operator.mlp(feat)
-            X_pred_flat = operator.mean_field + torch.matmul(a_pred, operator.basis_matrix)
+            X_pred_flat = operator(p_query)
     t_infer_ms = (time.perf_counter() - t_start) / 50.0 * 1000.0
 
-    X_pred = X_pred_flat.view(1, channels, D, H, W).cpu().numpy()[0]
-    u_liquid_pred = X_pred[:3].reshape(3, -1).T # (N_cells, 3)
+    X_pred_scaled = X_pred_flat.view(1, channels, D, H, W).cpu().numpy()[0]
+    X_pred = X_pred_scaled * channel_scales.reshape(4, 1, 1, 1)
+    u_liquid_pred = X_pred[:3].reshape(3, -1).T
     alpha_gas_pred = np.clip(X_pred[3].flatten(), 0.0, 1.0)
     print(f"  AI Inference Latency: {t_infer_ms:.3f} ms (Target: < 2.0 ms)")
 
@@ -111,34 +186,43 @@ def main():
     assert (warm_dir / "alpha.gas").exists()
     print(f"  Successfully wrote warm-start state to {warm_dir}")
 
-    # 4. Benchmark Linear Solver Convergence: Cold Start vs. AI Warm Start
-    print(f"\n[4/4] Benchmarking OpenFOAM Linear Solver Convergence (Cold vs. Warm Start)...")
+    # 4. Benchmark Real 3D Discrete Poisson CG Convergence: Cold Start vs. AI Warm Start
+    print(f"\n[4/4] Benchmarking Actual 3D Poisson CG Convergence (Cold vs. AI Warm Start)...")
+    # Construct pressure potential proxy proportional to kinetic energy head 0.5*||u||^2
+    p_true_3d = 0.5 * np.sum(U_test[0] ** 2, axis=0) * mask
+    p_true_3d -= np.mean(p_true_3d[mask])
+    p_pred_3d = 0.5 * np.sum(X_pred[:3] ** 2, axis=0) * mask
+    p_pred_3d -= np.mean(p_pred_3d[mask])
 
-    # Baseline Cold Start: Initial residual = 1.0 (static fluid)
-    cold_solve = simulate_openfoam_linear_solver(
-        initial_residual=1.0,
-        target_residual=1e-4,
-        convergence_rate=0.88,
-        cost_per_iter_ms=4.2,
+    rhs = _apply_discrete_neg_laplacian_3d(p_true_3d, dx, dy, dz, mask)
+
+    cold_solve = solve_3d_poisson_cg(
+        rhs=rhs,
+        x0=np.zeros_like(p_true_3d),
+        dx=dx, dy=dy, dz=dz,
+        fluid_mask=mask,
+        tol=1e-6,
+        max_iters=500,
     )
-
-    # NLSS Warm Start: Initial residual drops to ~0.0025 due to ~90% accurate flow field
-    warm_solve = simulate_openfoam_linear_solver(
-        initial_residual=0.0028,
-        target_residual=1e-4,
-        convergence_rate=0.88,
-        cost_per_iter_ms=4.2,
+    warm_solve = solve_3d_poisson_cg(
+        rhs=rhs,
+        x0=p_pred_3d,
+        dx=dx, dy=dy, dz=dz,
+        fluid_mask=mask,
+        tol=1e-6,
+        max_iters=500,
     )
 
     t_total_cold = cold_solve["solver_time_ms"]
     t_total_warm = warm_solve["solver_time_ms"] + t_infer_ms
-    speedup = t_total_cold / t_total_warm
+    speedup = t_total_cold / max(t_total_warm, 1e-6)
+    res_ratio = cold_solve["initial_rel_residual"] / max(warm_solve["initial_rel_residual"], 1e-12)
 
-    print(f"\n  --- Solver Acceleration Benchmark Results ---")
-    print(f"  Cold Start Initial Residual:        1.0000")
-    print(f"  Warm Start Initial Residual:        0.0028 (357x lower initial residual)")
-    print(f"  Cold Start Poisson Iterations:      {cold_solve['iterations']} sweeps")
-    print(f"  Warm Start Poisson Iterations:      {warm_solve['iterations']} sweeps ({cold_solve['iterations'] - warm_solve['iterations']} fewer sweeps)")
+    print(f"\n  --- Solver Acceleration Benchmark Results (Measured 3D CG) ---")
+    print(f"  Cold Start Initial Residual:        {cold_solve['initial_rel_residual']:.4f}")
+    print(f"  Warm Start Initial Residual:        {warm_solve['initial_rel_residual']:.4f} ({res_ratio:.2f}x lower initial residual)")
+    print(f"  Cold Start Poisson CG Iterations:   {cold_solve['iterations']} sweeps")
+    print(f"  Warm Start Poisson CG Iterations:   {warm_solve['iterations']} sweeps ({cold_solve['iterations'] - warm_solve['iterations']} fewer sweeps)")
     print(f"  Cold Start Solver Time:             {t_total_cold:.2f} ms")
     print(f"  Warm Start Total Time (AI + Solver):{t_total_warm:.2f} ms (Inference: {t_infer_ms:.2f} ms)")
     print(f"  Net Solver Acceleration Speedup:    {speedup:.2f}x")
@@ -146,22 +230,24 @@ def main():
     # Save benchmark report
     report = {
         "benchmark": "Phase4_Hybrid_Accelerator_Benchmark",
+        "solver_mode": "3d_discrete_poisson_cg_proxy",
         "case": case_dir.name,
         "operating_condition_rpm": test_rpm,
         "ai_inference_latency_ms": t_infer_ms,
         "cold_start": {
-            "initial_residual": 1.0,
+            "initial_residual": cold_solve["initial_rel_residual"],
             "iterations": cold_solve["iterations"],
             "time_ms": cold_solve["solver_time_ms"],
         },
         "warm_start": {
-            "initial_residual": 0.0028,
+            "initial_residual": warm_solve["initial_rel_residual"],
             "iterations": warm_solve["iterations"],
             "solver_time_ms": warm_solve["solver_time_ms"],
             "total_time_ms": t_total_warm,
         },
         "performance_gain": {
-            "iteration_reduction_pct": ((cold_solve["iterations"] - warm_solve["iterations"]) / cold_solve["iterations"]) * 100.0,
+            "residual_reduction_factor": res_ratio,
+            "iteration_reduction_pct": ((cold_solve["iterations"] - warm_solve["iterations"]) / max(cold_solve["iterations"], 1)) * 100.0,
             "net_speedup_factor": speedup,
         },
     }

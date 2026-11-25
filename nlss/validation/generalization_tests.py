@@ -111,11 +111,13 @@ def evaluate_three_tier_accuracy(
     test_snapshots: np.ndarray,
     test_params: np.ndarray,
     is_unseen_condition: bool = False,
+    tier_b_snapshots: Optional[np.ndarray] = None,
+    tier_b_params: Optional[np.ndarray] = None,
 ) -> Dict[str, Dict[str, float]]:
     """
     Rigorously separates performance into the 3 scientific categories:
       Tier A: POD Reconstruction Accuracy (optimal projection Phi * Phi^T (u - mean))
-      Tier B: Neural Mode Prediction Accuracy (evaluated on held-out time steps)
+      Tier B: Neural Mode Prediction Accuracy (evaluated on held-out time steps of trained conditions)
       Tier C: CFD Generalization Accuracy (evaluated on unseen parameter conditions)
     """
     if not model.is_calibrated:
@@ -127,36 +129,57 @@ def evaluate_three_tier_accuracy(
 
     basis_np = model.basis_matrix.detach().cpu().numpy()  # (K, N_dof)
 
-    # 1. Tier A: Optimal Orthogonal POD Reconstruction (Information Truncation Limit)
-    if getattr(model, "has_parametric_mean", False):
-        p_tensor = torch.from_numpy(params).float().to(next(model.parameters()).device)
-        param_val = p_tensor[:, -1:]
-        deg = model.mean_poly_coeffs.shape[0] - 1
-        powers = torch.cat([param_val**i for i in range(deg, -1, -1)], dim=1)
-        mean_eval = torch.matmul(powers, model.mean_poly_coeffs).detach().cpu().numpy()
-        fluct = snaps - mean_eval
-        a_optimal = fluct @ basis_np.T  # (N_snaps, K)
-        rec_pod = mean_eval + (a_optimal @ basis_np)
-    else:
-        mean_np = model.mean_field.detach().cpu().numpy()
-        fluct = snaps - mean_np
-        a_optimal = fluct @ basis_np.T  # (N_snaps, K)
-        rec_pod = mean_np + (a_optimal @ basis_np)
+    def _compute_optimal_pod(s_arr: np.ndarray, p_arr: np.ndarray):
+        if getattr(model, "has_parametric_mean", False):
+            p_t = torch.from_numpy(p_arr).float().to(next(model.parameters()).device)
+            col = getattr(model, "parametric_mean_col", -1)
+            param_val = p_t[:, col:col + 1] if col != -1 else p_t[:, -1:]
+            deg = model.mean_poly_coeffs.shape[0] - 1
+            powers = torch.cat([param_val**i for i in range(deg, -1, -1)], dim=1)
+            mean_eval = torch.matmul(powers, model.mean_poly_coeffs).detach().cpu().numpy()
+            fluct = s_arr - mean_eval
+            a_opt = fluct @ basis_np.T
+            rec = mean_eval + (a_opt @ basis_np)
+        else:
+            mean_np = model.mean_field.detach().cpu().numpy()
+            fluct = s_arr - mean_np
+            a_opt = fluct @ basis_np.T
+            rec = mean_np + (a_opt @ basis_np)
+        return rec, a_opt
 
+    # 1. Tier A: Optimal Orthogonal POD Reconstruction (Information Truncation Limit)
+    rec_pod, a_optimal = _compute_optimal_pod(snaps, params)
     rel_l2_pod = relative_l2_error(rec_pod, snaps)
     r2_pod = r2_score_field(rec_pod, snaps)
 
-    # 2. Tier B: Neural Operator Prediction
+    # 2. Neural Operator Prediction on primary evaluation set
     with torch.no_grad():
         p_tensor = torch.from_numpy(params).float().to(next(model.parameters()).device)
         pred_neural = model(p_tensor).detach().cpu().numpy()
+        a_pred = model.predict_coefficients(p_tensor).detach().cpu().numpy()
 
     rel_l2_neural = relative_l2_error(pred_neural, snaps)
     r2_neural = r2_score_field(pred_neural, snaps)
-
-    # Modal amplitude error
-    a_pred = model.predict_coefficients(p_tensor).detach().cpu().numpy()
     modal_rel_l2 = relative_l2_error(a_pred, a_optimal)
+
+    # 3. Dedicated Tier B evaluation if separate in-domain held-out snapshots are provided
+    if tier_b_snapshots is not None and tier_b_params is not None:
+        tb_snaps = to_numpy(tier_b_snapshots)
+        tb_params = to_numpy(tier_b_params)
+        _, tb_a_opt = _compute_optimal_pod(tb_snaps, tb_params)
+        with torch.no_grad():
+            tb_p_tensor = torch.from_numpy(tb_params).float().to(next(model.parameters()).device)
+            tb_pred = model(tb_p_tensor).detach().cpu().numpy()
+            tb_a_pred = model.predict_coefficients(tb_p_tensor).detach().cpu().numpy()
+        tb_rel_l2 = relative_l2_error(tb_pred, tb_snaps)
+        tb_r2 = r2_score_field(tb_pred, tb_snaps)
+        tb_modal_rel_l2 = relative_l2_error(tb_a_pred, tb_a_opt)
+        tb_scope = "in_domain_heldout_timesteps"
+    else:
+        tb_rel_l2 = rel_l2_neural
+        tb_r2 = r2_neural
+        tb_modal_rel_l2 = modal_rel_l2
+        tb_scope = "mirrors_tier_c_unseen_condition" if is_unseen_condition else "in_domain_heldout_timesteps"
 
     results = {
         "tier_a_pod_reconstruction": {
@@ -166,10 +189,11 @@ def evaluate_three_tier_accuracy(
             "description": "Optimal orthogonal projection limit (information truncation loss)",
         },
         "tier_b_neural_prediction": {
-            "rel_l2_error": rel_l2_neural,
-            "prediction_accuracy_pct": float((1.0 - rel_l2_neural) * 100.0),
-            "r2_score": r2_neural,
-            "modal_amplitude_rel_l2": modal_rel_l2,
+            "rel_l2_error": tb_rel_l2,
+            "prediction_accuracy_pct": float((1.0 - tb_rel_l2) * 100.0),
+            "r2_score": tb_r2,
+            "modal_amplitude_rel_l2": tb_modal_rel_l2,
+            "evaluation_scope": tb_scope,
             "description": "Neural mode decoupling accuracy on held-out temporal snapshots",
         },
     }

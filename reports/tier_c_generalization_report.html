@@ -137,24 +137,24 @@
         <span class="badge badge-primary">Tier C Unseen Operating Condition: 450 RPM (Balanced Step-Response)</span>
       </div>
       <h1>BioFlo-CFD: Scientific Verification & Performance Audit Report</h1>
-      <div class="meta">Generated: 2026-11-23 18:54:18 UTC &bull; Model: <code>BioFlo-NeuralPODOperator3D</code> (20 singular modes)</div>
+      <div class="meta">Generated: 2026-11-25 18:04:16 UTC &bull; Model: <code>BioFlo-NeuralPODOperator3D</code> (20 singular modes)</div>
     </div>
 
     <div class="grid-3">
       <div class="card">
         <h3>Tier A: POD Truncation Limit</h3>
-        <div class="stat-val">79.588%</div>
-        <div class="stat-sub">Relative L2: 20.412% &bull; R²: 0.958131</div>
+        <div class="stat-val">77.419%</div>
+        <div class="stat-sub">Relative L2: 22.581% &bull; R²: 0.948757</div>
       </div>
       <div class="card">
         <h3>Tier B: Neural Prediction</h3>
-        <div class="stat-val">37.647%</div>
-        <div class="stat-sub">Relative L2: 62.353% &bull; Modal L2: 102.731%</div>
+        <div class="stat-val">64.970%</div>
+        <div class="stat-sub">Relative L2: 35.030% &bull; Modal L2: 64.973%</div>
       </div>
       <div class="card">
         <h3>Single-Step Latency</h3>
-        <div class="stat-val">0.64 ms</div>
-        <div class="stat-sub">25,768x faster than OpenFOAM (cuda:0)</div>
+        <div class="stat-val">0.38 ms</div>
+        <div class="stat-sub">43,769x faster than OpenFOAM (cuda:0)</div>
       </div>
     </div>
 
@@ -178,43 +178,43 @@
         <tbody>
           <tr>
             <td><strong>Impeller Discharge Zone</strong> (High Shear)</td>
-            <td class="mono">78.68%</td>
-            <td class="mono">78.46%</td>
-            <td class="mono">76.55%</td>
-            <td class="mono">0.7512</td>
-            <td class="mono">30.75&deg;</td>
+            <td class="mono">50.28%</td>
+            <td class="mono">51.12%</td>
+            <td class="mono">47.80%</td>
+            <td class="mono">0.4700</td>
+            <td class="mono">21.14&deg;</td>
           </tr>
           <tr>
             <td><strong>Wall Baffles Zone</strong> (Jet Deflection)</td>
-            <td class="mono">56.30%</td>
-            <td class="mono">57.43%</td>
-            <td class="mono">62.88%</td>
-            <td class="mono">0.7188</td>
-            <td class="mono">28.84&deg;</td>
+            <td class="mono">41.62%</td>
+            <td class="mono">44.19%</td>
+            <td class="mono">42.73%</td>
+            <td class="mono">0.5294</td>
+            <td class="mono">23.58&deg;</td>
           </tr>
           <tr>
             <td><strong>Dished Bottom Zone</strong> (Sweeping/Suspension)</td>
-            <td class="mono">62.84%</td>
-            <td class="mono">67.31%</td>
-            <td class="mono">75.90%</td>
-            <td class="mono">0.6699</td>
-            <td class="mono">29.01&deg;</td>
+            <td class="mono">45.79%</td>
+            <td class="mono">49.76%</td>
+            <td class="mono">55.28%</td>
+            <td class="mono">0.4822</td>
+            <td class="mono">23.34&deg;</td>
           </tr>
           <tr>
             <td><strong>Free Surface Zone</strong> (Interface Shear)</td>
-            <td class="mono">77.55%</td>
-            <td class="mono">75.32%</td>
-            <td class="mono">61.96%</td>
-            <td class="mono">0.6876</td>
-            <td class="mono">32.26&deg;</td>
+            <td class="mono">56.04%</td>
+            <td class="mono">55.17%</td>
+            <td class="mono">40.84%</td>
+            <td class="mono">0.4954</td>
+            <td class="mono">25.77&deg;</td>
           </tr>
           <tr>
             <td><strong>Bulk Recirculation Zone</strong> (Toroidal Loops)</td>
-            <td class="mono">67.48%</td>
-            <td class="mono">69.77%</td>
-            <td class="mono">59.05%</td>
-            <td class="mono">0.6208</td>
-            <td class="mono">30.25&deg;</td>
+            <td class="mono">46.66%</td>
+            <td class="mono">49.40%</td>
+            <td class="mono">37.96%</td>
+            <td class="mono">0.4256</td>
+            <td class="mono">22.90&deg;</td>
           </tr>
         </tbody>
       </table>
@@ -224,18 +224,18 @@
     <div class="grid-3">
       <div class="card">
         <h3>Discrete Divergence &nabla;&middot;u</h3>
-        <div class="stat-val">1.03e+01</div>
-        <div class="stat-sub">Max: 2.23e+02 (Mass Conservation)</div>
+        <div class="stat-val">1.34e+01</div>
+        <div class="stat-sub">Max: 3.88e+02 (Mass Conservation)</div>
       </div>
       <div class="card">
         <h3>Vorticity Relative L2</h3>
-        <div class="stat-val">70.16%</div>
-        <div class="stat-sub">RMSE: 23.8193 1/s (Eddy Structure)</div>
+        <div class="stat-val">54.85%</div>
+        <div class="stat-sub">RMSE: 19.3810 1/s (Eddy Structure)</div>
       </div>
       <div class="card">
         <h3>3D Vector Cosine Alignment</h3>
-        <div class="stat-val">0.4528</div>
-        <div class="stat-sub">Mean Angular Error: 58.56&deg;</div>
+        <div class="stat-val">0.8492</div>
+        <div class="stat-sub">Mean Angular Error: 23.90&deg;</div>
       </div>
     </div>
 
@@ -255,35 +255,35 @@
         <tbody>
           <tr>
             <td><strong>ux (Radial X Velocity)</strong></td>
-            <td class="mono">67.67%</td>
-            <td class="mono">61.45%</td>
-            <td class="mono">0.2218</td>
-            <td class="mono">0.1711</td>
-            <td class="mono">-0.642070</td>
+            <td class="mono">47.20%</td>
+            <td class="mono">46.35%</td>
+            <td class="mono">0.4497</td>
+            <td class="mono">0.2530</td>
+            <td class="mono">0.777166</td>
           </tr>
           <tr>
             <td><strong>uy (Tangential Y Velocity)</strong></td>
-            <td class="mono">94.07%</td>
-            <td class="mono">93.53%</td>
-            <td class="mono">0.3437</td>
-            <td class="mono">0.2393</td>
-            <td class="mono">-0.066825</td>
+            <td class="mono">45.21%</td>
+            <td class="mono">44.84%</td>
+            <td class="mono">0.4707</td>
+            <td class="mono">0.2828</td>
+            <td class="mono">0.795568</td>
           </tr>
           <tr>
             <td><strong>uz (Axial Z Velocity)</strong></td>
-            <td class="mono">206.51%</td>
-            <td class="mono">183.19%</td>
-            <td class="mono">0.3652</td>
-            <td class="mono">0.2416</td>
-            <td class="mono">-3.645383</td>
+            <td class="mono">41.36%</td>
+            <td class="mono">41.35%</td>
+            <td class="mono">0.5209</td>
+            <td class="mono">0.3424</td>
+            <td class="mono">0.823231</td>
           </tr>
           <tr>
             <td><strong>||u|| (Velocity Magnitude)</strong></td>
-            <td class="mono">64.08%</td>
-            <td class="mono">56.29%</td>
-            <td class="mono">0.3343</td>
-            <td class="mono">0.2557</td>
-            <td class="mono">-0.694844</td>
+            <td class="mono">37.30%</td>
+            <td class="mono">32.22%</td>
+            <td class="mono">0.7055</td>
+            <td class="mono">0.4397</td>
+            <td class="mono">0.709896</td>
           </tr>
         </tbody>
       </table>
@@ -293,13 +293,13 @@
     <div class="grid-3">
       <div class="card">
         <h3>Specific Power Input (P/V)</h3>
-        <div class="stat-val">1.82 W/m³</div>
-        <div class="stat-sub">CFD True: 6.28 W/m³ (Error: 70.30%)</div>
+        <div class="stat-val">3.18 W/m³</div>
+        <div class="stat-sub">CFD True: 7.06 W/m³ (Error: 51.44%)</div>
       </div>
       <div class="card">
         <h3>Mass Transfer (k_L a)</h3>
-        <div class="stat-val">12.2 h⁻¹</div>
-        <div class="stat-sub">CFD True: 20.9 h⁻¹ (Error: 42.16%)</div>
+        <div class="stat-val">15.5 h⁻¹</div>
+        <div class="stat-sub">CFD True: 22.0 h⁻¹ (Error: 28.93%)</div>
       </div>
       <div class="card">
         <h3>Mixing & Blend Time (τ₉₅)</h3>
@@ -310,13 +310,13 @@
     <div class="grid-3">
       <div class="card">
         <h3>Max Shear Strain Rate (γ̇_max)</h3>
-        <div class="stat-val">288.5 s⁻¹</div>
-        <div class="stat-sub">CFD True: 483.7 s⁻¹ (Error: 37.89%)</div>
+        <div class="stat-val">595.6 s⁻¹</div>
+        <div class="stat-sub">CFD True: 846.4 s⁻¹ (Error: 27.64%)</div>
       </div>
       <div class="card">
         <h3>Kolmogorov Microscale (η_K)</h3>
-        <div class="stat-val">154.7 μm</div>
-        <div class="stat-sub">CFD True: 117.2 μm (Error: 37.01%)</div>
+        <div class="stat-val">136.7 μm</div>
+        <div class="stat-sub">CFD True: 113.9 μm (Error: 22.81%)</div>
       </div>
       <div class="card">
         <h3>Operating Regime</h3>

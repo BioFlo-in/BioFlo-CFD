@@ -69,8 +69,8 @@ class NeuralPODOperator3D(nn.Module):
         param_dim: int = 1,  # e.g., normalized time t, or [t, rpm, re]
         hidden_dim: int = 128,
         num_layers: int = 4,
-        num_frequencies: int = 16,
-        max_freq_log2: float = 6.0,
+        num_frequencies: int = 8,
+        max_freq_log2: float = 3.0,
         svd_solver: str = "auto",
     ):
         super().__init__()
@@ -108,6 +108,7 @@ class NeuralPODOperator3D(nn.Module):
         self.is_calibrated = False
         self.has_param_bounds = False
         self.has_parametric_mean = False
+        self.parametric_mean_col = -1
         self.calibration_stats: Dict[str, Union[float, int]] = {}
         self.domain_checker = None
         self.strict_domain = False
@@ -181,11 +182,16 @@ class NeuralPODOperator3D(nn.Module):
         self.is_calibrated = True
         return super().load_state_dict(state_dict, strict=strict)
 
-    def set_parametric_mean_polynomial(self, poly_coeffs: Union[np.ndarray, torch.Tensor]):
+    def set_parametric_mean_polynomial(
+        self,
+        poly_coeffs: Union[np.ndarray, torch.Tensor],
+        param_col: int = -1,
+    ):
         """
         Sets polynomial coefficients for dynamic parameter-conditioned mean field:
             u_mean(x; N) = c_d(x)*N^d + c_{d-1}(x)*N^{d-1} + ... + c_0(x)
         poly_coeffs: array of shape (deg + 1, N_dof)
+        param_col: Column index in input parameter tensor p corresponding to the polynomial variable.
         """
         dev = next(self.parameters()).device
         if not isinstance(poly_coeffs, torch.Tensor):
@@ -193,6 +199,7 @@ class NeuralPODOperator3D(nn.Module):
         else:
             poly_t = poly_coeffs.float()
         self.register_buffer("mean_poly_coeffs", poly_t.to(dev))
+        self.parametric_mean_col = int(param_col)
         self.has_parametric_mean = True
 
     def set_parameter_bounds(self, p_min: Union[np.ndarray, torch.Tensor, List[float]], p_max: Union[np.ndarray, torch.Tensor, List[float]]):
@@ -346,8 +353,9 @@ class NeuralPODOperator3D(nn.Module):
         fluct = torch.matmul(a, self.basis_matrix)
 
         if self.has_parametric_mean:
-            # Evaluate parameter-conditioned polynomial mean u_bar(x; N)
-            param_val = p[:, -1:]  # (B, 1)
+            # Evaluate parameter-conditioned polynomial mean u_bar(x; param)
+            col = self.parametric_mean_col
+            param_val = p[:, col:col + 1] if col != -1 else p[:, -1:]
             deg = self.mean_poly_coeffs.shape[0] - 1
             powers = torch.cat([param_val**i for i in range(deg, -1, -1)], dim=1)
             mean_eval = torch.matmul(powers, self.mean_poly_coeffs)
@@ -417,48 +425,52 @@ class NeuralPODOperator3D(nn.Module):
         dy: float = 1.0,
         dz: float = 1.0,
         fluid_mask: Optional[torch.Tensor] = None,
+        channels: Optional[int] = None,
     ) -> Dict[str, float]:
         """
         Verifies discrete divergence-free condition (div(phi_k) ~ 0) across all retained modes.
-        Because CFD training snapshots satisfy discrete continuity, their POD modes inherit incompressibility.
+        Supports both 3-channel velocity bases and multi-channel bases (e.g., 4-channel [u, v, w, alpha_g]).
         """
         if not self.is_calibrated:
             raise RuntimeError("Model must be calibrated before verifying basis divergence.")
 
+        from nlss.validation.physics_residuals import _finite_diff_gradient_3d
+
         D, H, W = grid_shape
         K = self.basis_matrix.shape[0]
+        N_dof = self.basis_matrix.shape[1]
+        if channels is None:
+            n_active = int(fluid_mask.sum().item()) if (fluid_mask is not None and fluid_mask.ndim == 3) else (D * H * W)
+            channels = max(3, N_dof // max(n_active, 1))
+
+        mask_np: Optional[np.ndarray] = None
+        if fluid_mask is not None and fluid_mask.ndim == 3:
+            mask_np = fluid_mask.detach().cpu().numpy().astype(bool)
+
         max_divs = []
         mean_divs = []
 
         for k in range(K):
-            mode_vec = self.basis_matrix[k:k+1]  # (1, N_dof)
-            if fluid_mask is not None and fluid_mask.ndim == 3:
-                mask_flat = fluid_mask.view(-1)
-                n_active = int(mask_flat.sum().item())
-                u_3ch = torch.zeros((1, 3, D, H, W), dtype=mode_vec.dtype, device=mode_vec.device)
+            mode_vec = self.basis_matrix[k].detach().cpu().numpy()
+            if mask_np is not None:
+                mask_flat = mask_np.reshape(-1)
+                n_active = int(mask_flat.sum())
+                u_3ch = np.zeros((3, D, H, W), dtype=np.float64)
                 for c in range(3):
-                    u_3ch[0, c].view(-1)[mask_flat] = mode_vec[0, c * n_active:(c + 1) * n_active]
+                    u_3ch[c].reshape(-1)[mask_flat] = mode_vec[c * n_active:(c + 1) * n_active]
             else:
-                u_3ch = mode_vec.view(1, 3, D, H, W)
+                u_3ch = mode_vec.reshape(channels, D, H, W)[:3].astype(np.float64)
 
-            ux = u_3ch[:, 0]
-            uy = u_3ch[:, 1]
-            uz = u_3ch[:, 2]
-
-            du_dx = torch.zeros_like(ux)
-            dv_dy = torch.zeros_like(uy)
-            dw_dz = torch.zeros_like(uz)
-
-            du_dx[:, :, :, 1:-1] = (ux[:, :, :, 2:] - ux[:, :, :, :-2]) / (2.0 * dx)
-            dv_dy[:, :, 1:-1, :] = (uy[:, :, 2:, :] - uy[:, :, :-2, :]) / (2.0 * dy)
-            dw_dz[:, 1:-1, :, :] = (uz[:, 2:, :, :] - uz[:, :-2, :, :]) / (2.0 * dz)
+            du_dx, _, _ = _finite_diff_gradient_3d(u_3ch[0], dx, dy, dz, mask=mask_np)
+            _, dv_dy, _ = _finite_diff_gradient_3d(u_3ch[1], dx, dy, dz, mask=mask_np)
+            _, _, dw_dz = _finite_diff_gradient_3d(u_3ch[2], dx, dy, dz, mask=mask_np)
 
             div = du_dx + dv_dy + dw_dz
-            if fluid_mask is not None and fluid_mask.ndim == 3:
-                div = div[:, fluid_mask]
+            if mask_np is not None:
+                div = div[mask_np]
 
-            max_divs.append(float(torch.max(torch.abs(div)).item()))
-            mean_divs.append(float(torch.mean(torch.abs(div)).item()))
+            max_divs.append(float(np.max(np.abs(div))))
+            mean_divs.append(float(np.mean(np.abs(div))))
 
         return {
             "mean_mode_divergence": float(np.mean(mean_divs)),
@@ -512,7 +524,8 @@ class NeuralPODOperator3D(nn.Module):
             "kla_h_inv": kla_stats["kla_h_inv"],
             "kla_s_inv": kla_stats["kla_s_inv"],
             "estimated_otr_kg_m3_h": kla_stats["estimated_otr_kg_m3_h"],
-            "mean_shear_rate_s_inv": pv_stats["mean_dissipation_rate_w_kg"],
+            "mean_shear_rate_s_inv": pv_stats["mean_shear_rate_s_inv"],
+            "mean_dissipation_rate_w_kg": pv_stats["mean_dissipation_rate_w_kg"],
             "max_shear_rate_s_inv": pv_stats["max_shear_rate_s_inv"],
             "kolmogorov_microscale_um": pv_stats["kolmogorov_microscale_um"],
             "mixing_time_95_s": mix_stats["mixing_time_95_s"],

@@ -324,3 +324,216 @@ def test_audit_validation_does_not_mask_prediction():
     assert "mask_5ch" not in content, "Found deprecated mask_5ch in train_novel_cylindrical_net.py!"
     # Ensure validation loop directly calls criterion with unmasked p1
     assert "p1 = p1 * mask" not in content, "Prediction masking found in validation loop!"
+
+
+# =========================================================================
+# AUDIT ITEMS 10-15: Senior Review Regression Tests
+# =========================================================================
+
+def test_audit_10_shear_rate_not_dissipation():
+    """Verify mean_shear_rate_s_inv reports actual shear rate rather than dissipation epsilon."""
+    from nlss.validation.bioprocess_metrics import evaluate_bioprocess_field_comparison
+
+    D, H, W = 10, 10, 10
+    dx = dy = dz = 0.02
+    target_shear = 15.0
+    y_coords = np.linspace(0, (H - 1) * dy, H)
+    ux = np.zeros((D, H, W), dtype=np.float64)
+    for j in range(H):
+        ux[:, j, :] = target_shear * y_coords[j]
+    u_grid = np.stack([ux, np.zeros_like(ux), np.zeros_like(ux)], axis=0)
+
+    comp = evaluate_bioprocess_field_comparison(
+        u_grid, u_grid, dx, dy, dz, nu=1e-6, rho=1000.0, N_rpm=300.0
+    )
+    assert abs(comp["mean_shear_rate_true_cfd_s_inv"] - target_shear) < 1e-3
+    assert comp["mean_dissipation_rate_true_cfd_w_kg"] < 1e-2  # ~ nu * 15^2 = 2.25e-4
+    assert "mean_shear_rate_relative_error" in comp
+
+
+def test_audit_11_leray_projection_anisotropic():
+    """Verify LerayProjection3D reduces physical divergence on anisotropic grids."""
+    from nlss.models.learned_evolution_operator import LerayProjection3D
+
+    torch.manual_seed(7)
+    dx, dy, dz = 0.02, 0.05, 0.08
+    proj = LerayProjection3D(spacings=(dx, dy, dz))
+    u_noisy = torch.randn(2, 3, 12, 14, 16, dtype=torch.float64)
+
+    def _phys_div(u):
+        du_dx = (torch.roll(u[:, 0], -1, dims=-1) - torch.roll(u[:, 0], 1, dims=-1)) / (2.0 * dx)
+        dv_dy = (torch.roll(u[:, 1], -1, dims=-2) - torch.roll(u[:, 1], 1, dims=-2)) / (2.0 * dy)
+        dw_dz = (torch.roll(u[:, 2], -1, dims=-3) - torch.roll(u[:, 2], 1, dims=-3)) / (2.0 * dz)
+        return du_dx + dv_dy + dw_dz
+
+    init_norm = torch.norm(_phys_div(u_noisy)).item()
+    u_sol = proj(u_noisy)
+    sol_norm = torch.norm(_phys_div(u_sol)).item()
+    assert sol_norm < 1e-10 * init_norm
+
+
+def test_audit_12_velocity_metrics_flat_guard_and_runner_components():
+    """Verify component_wise_errors guards flattened 2D arrays and OpenFOAMBenchmarkRunner tracks components."""
+    from nlss.validation.velocity_metrics import component_wise_errors
+    from nlss.benchmark.openfoam_benchmark import OpenFOAMBenchmarkRunner
+
+    with pytest.raises(ValueError, match="reshape flattened arrays"):
+        component_wise_errors(np.ones((4, 300)), np.ones((4, 300)), channel_dim=1)
+
+    D, H, W = 6, 6, 6
+    n_vox = D * H * W
+    N_snaps = 14
+    t = np.linspace(0, 1, N_snaps)
+    # Construct velocity where ux=1, uy=2, uz=-0.5 modulated cleanly
+    X = np.zeros((N_snaps, 3 * n_vox), dtype=np.float32)
+    X[:, :n_vox] = 1.0 + 0.1 * t[:, None]
+    X[:, n_vox:2 * n_vox] = 2.0 - 0.1 * t[:, None]
+    X[:, 2 * n_vox:] = -0.5 + 0.05 * t[:, None]
+
+    model = NeuralPODOperator3D(n_modes=2, param_dim=1, hidden_dim=16, num_layers=2)
+    model.calibrate_basis(X[:10], n_modes=2)
+    model.set_training_parameters(t[:10, None])
+
+    runner = OpenFOAMBenchmarkRunner(model=model, grid_shape=(D, H, W), spacings=(0.1, 0.1, 0.1))
+    report = runner.run_benchmark(X[10:], t[10:, None])
+    # Must contain valid component stats without treating voxels as components
+    assert report["global_velocity_metrics"]["components"]["uy"]["rmse"] < 10.0
+
+
+def test_audit_13_mask_aware_derivatives_no_wall_spike():
+    """Verify mask-aware gradients prevent solid-wall step discontinuity spikes."""
+    from nlss.validation.bioprocess_metrics import compute_strain_rate_tensor
+    from nlss.validation.physics_residuals import compute_discrete_divergence
+
+    D, H, W = 12, 12, 12
+    dx = dy = dz = 0.05
+    mask = np.zeros((D, H, W), dtype=bool)
+    mask[2:-2, 2:-2, 2:-2] = True
+
+    # Uniform flow inside mask, zero outside mask
+    u_grid = np.zeros((3, D, H, W), dtype=np.float64)
+    u_grid[0, mask] = 2.0
+
+    shear_rate, _ = compute_strain_rate_tensor(u_grid, dx, dy, dz, fluid_mask=mask)
+    div = compute_discrete_divergence(u_grid, dx=dx, dy=dy, dz=dz, fluid_mask=mask)
+
+    assert np.max(shear_rate[mask]) < 1e-10
+    assert div["max_abs_divergence"] < 1e-10
+
+
+def test_audit_14_multiphase_proxy_and_4ch_basis_divergence():
+    """Verify 4-channel POD basis divergence verification works cleanly."""
+    D, H, W = 6, 6, 6
+    n_vox = D * H * W
+    model = NeuralPODOperator3D(n_modes=2, param_dim=1)
+    np.random.seed(42)
+    snaps_4ch = np.random.randn(6, 4 * n_vox)
+    model.calibrate_basis(snaps_4ch)
+    div_stats = model.verify_basis_divergence(grid_shape=(D, H, W), dx=0.1, dy=0.1, dz=0.1, channels=4)
+    assert div_stats["retained_modes"] == 2
+    assert np.isfinite(div_stats["mean_mode_divergence"])
+
+
+def test_audit_15_foam_writer_int_time_and_tier_b_c_split(tmp_path):
+    """Verify foam writer accepts int time_val and Tier B vs Tier C evaluate distinct splits."""
+    from nlss.io.foam_writer import export_multiphase_simulation_state_to_openfoam
+    from nlss.validation.generalization_tests import evaluate_three_tier_accuracy
+
+    out_dir = export_multiphase_simulation_state_to_openfoam(
+        case_dir=tmp_path,
+        time_val=0,  # integer must not raise AttributeError
+        u_liquid_pred=np.zeros((8, 3)),
+        alpha_gas_pred=np.full(8, 0.05),
+    )
+    assert (out_dir / "U.liquid").exists()
+
+    np.random.seed(11)
+    X_train = np.random.randn(10, 60)
+    X_tier_b = X_train[:3]
+    X_tier_c = np.random.randn(3, 60) * 5.0
+    model = NeuralPODOperator3D(n_modes=4, param_dim=1)
+    model.calibrate_basis(X_train)
+
+    res = evaluate_three_tier_accuracy(
+        model,
+        test_snapshots=X_tier_c,
+        test_params=np.ones((3, 1)),
+        is_unseen_condition=True,
+        tier_b_snapshots=X_tier_b,
+        tier_b_params=np.zeros((3, 1)),
+    )
+    assert res["tier_b_neural_prediction"]["evaluation_scope"] == "in_domain_heldout_timesteps"
+    assert res["tier_b_neural_prediction"]["rel_l2_error"] != res["tier_c_cfd_generalization"]["rel_l2_error"]
+
+
+def test_audit_16_spectral_conv_zero_mean_init():
+    """Verify SpectralConv2d/3d initialize zero-mean complex weights (not strictly positive rand)."""
+    from nlss.models.fno import SpectralConv2d
+    from nlss.models.hybrid_cfd_net_3d import SpectralConv3d
+
+    torch.manual_seed(0)
+    sc2 = SpectralConv2d(8, 8, 6, 6)
+    sc3 = SpectralConv3d(8, 8, 4, 4, 4)
+    assert sc2.weights1.real.min().item() < 0.0
+    assert sc2.weights1.imag.min().item() < 0.0
+    assert sc3.weights1.real.min().item() < 0.0
+    assert sc3.weights1.imag.min().item() < 0.0
+
+
+def test_audit_17_resunet_channels_and_fluidgpt():
+    """Verify ResUNetCFD handles mismatched in/out channels and FluidGPT preserves spatial shape."""
+    from nlss.models.unet import ResUNetCFD
+    from nlss.models.transformer_stepper import FluidGPT
+
+    net_up = ResUNetCFD(in_channels=3, out_channels=5, base_features=8)
+    net_dn = ResUNetCFD(in_channels=5, out_channels=3, base_features=8)
+    assert net_up(torch.randn(1, 3, 16, 16)).shape == (1, 5, 16, 16)
+    assert net_dn(torch.randn(1, 5, 16, 16)).shape == (1, 3, 16, 16)
+
+    gpt = FluidGPT(in_channels=3, out_channels=3, embed_dim=32, num_layers=1, num_heads=4, context_window=3)
+    out = gpt(torch.randn(1, 3, 3, 16, 16))
+    assert out.shape == (1, 3, 16, 16)
+
+
+def test_audit_18_neural_rk4_top_wall_and_leray2d():
+    """Verify LerayProjection2D works on anisotropic 2D grids and NeuralRK4Operator preserves top wall."""
+    from nlss.models.neural_rk4 import LerayProjection2D, NeuralRK4Operator
+
+    torch.manual_seed(5)
+    dx, dy = 0.03, 0.07
+    proj = LerayProjection2D(spacings=(dx, dy))
+    u = torch.randn(1, 2, 12, 16, dtype=torch.float64)
+    init_div = (
+        (torch.roll(u[:, 0], -1, dims=-1) - torch.roll(u[:, 0], 1, dims=-1)) / (2.0 * dx)
+        + (torch.roll(u[:, 1], -1, dims=-2) - torch.roll(u[:, 1], 1, dims=-2)) / (2.0 * dy)
+    )
+    u_sol = proj(u)
+    du_dx = (torch.roll(u_sol[:, 0], -1, dims=-1) - torch.roll(u_sol[:, 0], 1, dims=-1)) / (2.0 * dx)
+    dv_dy = (torch.roll(u_sol[:, 1], -1, dims=-2) - torch.roll(u_sol[:, 1], 1, dims=-2)) / (2.0 * dy)
+    assert torch.norm(du_dx + dv_dy).item() < 1e-6 * torch.norm(init_div).item()
+
+    rk4 = NeuralRK4Operator(channels=3, hidden_dim=16, modes=4)
+    x = torch.randn(1, 3, 16, 16)
+    x[:, 0:2, -1, :] = 0.0  # Top no-slip wall
+    out = rk4(x)
+    assert torch.allclose(out[:, 0:2, -1, :], torch.zeros_like(out[:, 0:2, -1, :]))
+
+
+def test_audit_19_cylindrical_learnable_scale_and_evolution_norm():
+    """Verify BioFloCylindricalNet3D.potential_scale is learnable and evolution operator normalizes inputs."""
+    from nlss.models.cylindrical_cfd_net_3d import BioFloCylindricalNet3D
+    from nlss.models.learned_evolution_operator import AutoregressiveStateEvolutionOperator
+
+    cnet = BioFloCylindricalNet3D(hidden_dim=16, modes_xy=4, modes_z=4, num_layers=1)
+    assert isinstance(cnet.potential_scale, torch.nn.Parameter)
+    assert cnet.potential_scale.requires_grad is True
+
+    op = AutoregressiveStateEvolutionOperator(n_modes=4, param_dim=1, hidden_dim=16, num_blocks=1)
+    op.set_normalization_stats(
+        cond_mean=torch.tensor([450.0, 0.05]),
+        cond_std=torch.tensor([150.0, 0.02]),
+        state_scale=torch.ones(8) * 2.0,
+    )
+    out = op(torch.randn(2, 4), torch.randn(2, 4), torch.tensor(0.05), torch.tensor([[450.0], [300.0]]))
+    assert out.shape == (2, 4)
+    assert torch.isfinite(out).all()

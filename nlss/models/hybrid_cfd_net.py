@@ -103,12 +103,12 @@ class MeshGridGraphBlock(nn.Module):
         B, H, W, C = x.shape
         device = x.device
 
-        # Cardinal directional neighbor shifts (Face connectivity)
-        # North (i-1), South (i+1), East (j+1), West (j-1)
-        x_north = torch.roll(x, shifts=-1, dims=1)
-        x_south = torch.roll(x, shifts=1, dims=1)
-        x_east = torch.roll(x, shifts=-1, dims=2)
-        x_west = torch.roll(x, shifts=1, dims=2)
+        # Non-periodic cardinal directional neighbor shifts (zero-padded at physical walls)
+        x_pad = F.pad(x, (0, 0, 1, 1, 1, 1))  # pad H and W dims on (B, H, W, C)
+        x_north = x_pad[:, 2:, 1:-1, :]
+        x_south = x_pad[:, :-2, 1:-1, :]
+        x_east = x_pad[:, 1:-1, 2:, :]
+        x_west = x_pad[:, 1:-1, :-2, :]
 
         # Unit normal vectors for cell faces
         n_north = torch.tensor([0.0, 1.0], device=device).view(1, 1, 1, 2).expand(B, H, W, 2)

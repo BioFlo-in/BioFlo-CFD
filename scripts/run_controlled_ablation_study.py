@@ -108,7 +108,12 @@ def evaluate_prediction(pred_450, true_450, grid_dim, fluid_mask, dx, dy, dz):
     # Global metrics
     rel_l2 = relative_l2_error(pred_450, true_450)
     r2 = r2_score_field(pred_450, true_450)
-    ang = vector_angular_metrics(pred_450, true_450)
+    n_act = int(fluid_mask.sum())
+    ang = vector_angular_metrics(
+        pred_450.reshape(pred_450.shape[0], 3, n_act),
+        true_450.reshape(true_450.shape[0], 3, n_act),
+        channel_dim=1,
+    )
 
     # Spatial grid reconstruction
     D = H = W = grid_dim

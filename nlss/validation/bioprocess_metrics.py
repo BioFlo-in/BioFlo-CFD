@@ -47,23 +47,24 @@ def compute_strain_rate_tensor(
     if u_np.shape[0] != 3 or u_np.ndim != 4:
         raise ValueError(f"u_grid must have shape (3, D, H, W), got {u_np.shape}")
 
+    mask_np: Optional[np.ndarray] = None
+    if fluid_mask is not None:
+        if isinstance(fluid_mask, torch.Tensor):
+            mask_np = fluid_mask.detach().cpu().numpy().astype(bool)
+        else:
+            mask_np = np.asarray(fluid_mask, dtype=bool)
+
     ux = u_np[0]
     uy = u_np[1]
     uz = u_np[2]
     D, H, W = ux.shape
 
-    # Gradients using centered finite differences with edge-replicated boundaries
-    du_dx = np.gradient(ux, dx, axis=2)
-    du_dy = np.gradient(ux, dy, axis=1)
-    du_dz = np.gradient(ux, dz, axis=0)
+    from .physics_residuals import _finite_diff_gradient_3d
 
-    dv_dx = np.gradient(uy, dx, axis=2)
-    dv_dy = np.gradient(uy, dy, axis=1)
-    dv_dz = np.gradient(uy, dz, axis=0)
-
-    dw_dx = np.gradient(uz, dx, axis=2)
-    dw_dy = np.gradient(uz, dy, axis=1)
-    dw_dz = np.gradient(uz, dz, axis=0)
+    # Mask-aware finite differences (prevents step discontinuity spikes across solid walls)
+    du_dx, du_dy, du_dz = _finite_diff_gradient_3d(ux, dx, dy, dz, mask=mask_np)
+    dv_dx, dv_dy, dv_dz = _finite_diff_gradient_3d(uy, dx, dy, dz, mask=mask_np)
+    dw_dx, dw_dy, dw_dz = _finite_diff_gradient_3d(uz, dx, dy, dz, mask=mask_np)
 
     # Symmetric strain rate tensor S_ij = 0.5 * (grad u + grad u^T)
     S11 = du_dx
@@ -80,11 +81,7 @@ def compute_strain_rate_tensor(
     two_S_contract = np.maximum(two_S_contract, 0.0)
     shear_rate = np.sqrt(two_S_contract)
 
-    if fluid_mask is not None:
-        if isinstance(fluid_mask, torch.Tensor):
-            mask_np = fluid_mask.detach().cpu().numpy().astype(bool)
-        else:
-            mask_np = np.asarray(fluid_mask, dtype=bool)
+    if mask_np is not None:
         shear_rate[~mask_np] = 0.0
 
     S_tensor = np.stack([
@@ -103,15 +100,21 @@ def compute_viscous_dissipation_rate(
     dz: float,
     nu: float = 1e-6,
     fluid_mask: Optional[Union[np.ndarray, torch.Tensor]] = None,
+    nu_turbulent: Union[float, np.ndarray, torch.Tensor] = 0.0,
 ) -> Dict[str, Union[float, np.ndarray]]:
     """
     Computes local and volume-averaged turbulent/viscous energy dissipation rate:
-        epsilon(x) = 2 * nu * (S : S) = nu * dot{gamma}^2  [m^2 / s^3 = W / kg]
-    and the corresponding Kolmogorov microscale length:
-        eta_K = (nu^3 / epsilon_mean)^(1/4)  [m, um]
+        epsilon(x) = 2 * (nu + nu_t) * (S : S) = nu_eff * dot{gamma}^2  [m^2 / s^3 = W / kg]
+    and the corresponding Kolmogorov microscale length using molecular nu:
+        eta_K = (nu^3 / epsilon)^(1/4)  [m, um]
     """
     shear_rate, _ = compute_strain_rate_tensor(u_grid, dx, dy, dz, fluid_mask=fluid_mask)
-    epsilon_field = nu * (shear_rate**2)
+    if isinstance(nu_turbulent, torch.Tensor):
+        nu_t_np = nu_turbulent.detach().cpu().numpy().astype(np.float64)
+    else:
+        nu_t_np = np.asarray(nu_turbulent, dtype=np.float64)
+    nu_eff = nu + nu_t_np
+    epsilon_field = nu_eff * (shear_rate**2)
 
     if fluid_mask is not None:
         if isinstance(fluid_mask, torch.Tensor):
@@ -182,6 +185,7 @@ def compute_specific_power_input(
     N_rpm: Optional[float] = None,
     D_impeller: float = 0.166,
     Np: float = 1.5,
+    nu_turbulent: Union[float, np.ndarray, torch.Tensor] = 0.0,
 ) -> Dict[str, float]:
     """
     Computes specific power input P/V [W/m^3] via:
@@ -192,7 +196,9 @@ def compute_specific_power_input(
          P_imp = Np * rho * N^3 * D^5
          (P/V)_imp = P_imp / V_liquid
     """
-    diss_stats = compute_viscous_dissipation_rate(u_grid, dx, dy, dz, nu=nu, fluid_mask=fluid_mask)
+    diss_stats = compute_viscous_dissipation_rate(
+        u_grid, dx, dy, dz, nu=nu, fluid_mask=fluid_mask, nu_turbulent=nu_turbulent
+    )
     eps_field = diss_stats["dissipation_field"]
     voxel_vol = dx * dy * dz
 
@@ -227,6 +233,7 @@ def compute_specific_power_input(
         "impeller_power_w": p_imp,
         "specific_power_impeller_w_m3": specific_p_imp,
         "mean_dissipation_rate_w_kg": diss_stats["mean_dissipation_rate_w_kg"],
+        "mean_shear_rate_s_inv": diss_stats["mean_shear_rate_s_inv"],
         "max_shear_rate_s_inv": diss_stats["max_shear_rate_s_inv"],
         "kolmogorov_microscale_um": diss_stats["kolmogorov_microscale_um"],
     }
@@ -586,7 +593,8 @@ def evaluate_bioprocess_field_comparison(
         return float(abs(pred - true) / abs(true))
 
     rel_pv_err = rel_err(p_pred["specific_power_dissipation_w_m3"], p_true["specific_power_dissipation_w_m3"])
-    rel_shear_mean_err = rel_err(p_pred["mean_dissipation_rate_w_kg"], p_true["mean_dissipation_rate_w_kg"])
+    rel_diss_mean_err = rel_err(p_pred["mean_dissipation_rate_w_kg"], p_true["mean_dissipation_rate_w_kg"])
+    rel_shear_mean_err = rel_err(p_pred["mean_shear_rate_s_inv"], p_true["mean_shear_rate_s_inv"])
     rel_shear_max_err = rel_err(p_pred["max_shear_rate_s_inv"], p_true["max_shear_rate_s_inv"])
     rel_kla_err = rel_err(kla_pred["kla_h_inv"], kla_true["kla_h_inv"])
     rel_kolmogorov_err = rel_err(p_pred["kolmogorov_microscale_um"], p_true["kolmogorov_microscale_um"])
@@ -595,8 +603,12 @@ def evaluate_bioprocess_field_comparison(
         "specific_power_predicted_w_m3": p_pred["specific_power_dissipation_w_m3"],
         "specific_power_true_cfd_w_m3": p_true["specific_power_dissipation_w_m3"],
         "specific_power_relative_error": rel_pv_err,
-        "mean_shear_rate_predicted_s_inv": p_pred["mean_dissipation_rate_w_kg"],
-        "mean_shear_rate_true_cfd_s_inv": p_true["mean_dissipation_rate_w_kg"],
+        "mean_dissipation_rate_predicted_w_kg": p_pred["mean_dissipation_rate_w_kg"],
+        "mean_dissipation_rate_true_cfd_w_kg": p_true["mean_dissipation_rate_w_kg"],
+        "mean_dissipation_rate_relative_error": rel_diss_mean_err,
+        "mean_shear_rate_predicted_s_inv": p_pred["mean_shear_rate_s_inv"],
+        "mean_shear_rate_true_cfd_s_inv": p_true["mean_shear_rate_s_inv"],
+        "mean_shear_rate_relative_error": rel_shear_mean_err,
         "max_shear_rate_predicted_s_inv": p_pred["max_shear_rate_s_inv"],
         "max_shear_rate_true_cfd_s_inv": p_true["max_shear_rate_s_inv"],
         "max_shear_rate_relative_error": rel_shear_max_err,

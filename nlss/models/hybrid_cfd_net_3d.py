@@ -12,6 +12,7 @@ Architectural Hierarchy:
      - Evaluates div_3D(u) = du_x/dx + du_y/dy + du_z/dz ~ 0.
 """
 
+import math
 from typing import Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
@@ -34,12 +35,12 @@ class SpectralConv3d(nn.Module):
         self.modes2 = modes2  # Modes along Y (height)
         self.modes3 = modes3  # Modes along X (width)
 
-        self.scale = 1.0 / (in_channels * out_channels)
+        self.scale = 1.0 / math.sqrt(in_channels * out_channels)
         self.weights1 = nn.Parameter(
-            self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, self.modes3, dtype=torch.cfloat)
+            self.scale * torch.randn(in_channels, out_channels, self.modes1, self.modes2, self.modes3, dtype=torch.cfloat)
         )
         self.weights2 = nn.Parameter(
-            self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, self.modes3, dtype=torch.cfloat)
+            self.scale * torch.randn(in_channels, out_channels, self.modes1, self.modes2, self.modes3, dtype=torch.cfloat)
         )
 
     def compl_mul3d(self, input_tensor: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
@@ -47,9 +48,9 @@ class SpectralConv3d(nn.Module):
         return torch.einsum("bizyx,iozyx->bozyx", input_tensor, weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, C, D, H, W)
+        # B, C, D, H, W
         B, C, D, H, W = x.shape
-        x_ft = torch.fft.rfftn(x, dim=[-3, -2, -1])
+        x_ft = torch.fft.rfftn(x, dim=[-3, -2, -1], norm="ortho")
 
         out_ft = torch.zeros(
             B, self.out_channels, D, H, W // 2 + 1,
@@ -67,7 +68,7 @@ class SpectralConv3d(nn.Module):
             x_ft[:, :, -m1:, :m2, :m3], self.weights2[:, :, -m1:, :m2, :m3]
         )
 
-        return torch.fft.irfftn(out_ft, s=(D, H, W), dim=[-3, -2, -1])
+        return torch.fft.irfftn(out_ft, s=(D, H, W), dim=[-3, -2, -1], norm="ortho")
 
 
 class Mesh3DConvBlock(nn.Module):

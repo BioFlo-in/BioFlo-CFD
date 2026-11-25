@@ -72,29 +72,35 @@ def main():
     X_600, P_600, tau_600 = get_transient_data(cases[4])
     X_450, P_450, tau_450 = get_transient_data(cases[3])
 
+    # Hold out 2 intermediate timesteps per training RPM (indices 3 and 7) for genuine Tier B evaluation
+    tier_b_idx = [3, 7]
+    train_idx = [i for i in range(len(tau_120)) if i not in tier_b_idx]
+
     print(f"\n• Dataset Partitioning (Aligned Transient Acceleration tau in [0.0, 0.50]s):")
-    print(f"  - 120 RPM (Case 2): {len(tau_120)} snapshots")
-    print(f"  - 300 RPM (Case 1): {len(tau_300)} snapshots")
-    print(f"  - 600 RPM (Case 4): {len(tau_600)} snapshots")
+    print(f"  - 120 RPM (Case 2): {len(train_idx)} train / {len(tier_b_idx)} Tier B held-out snapshots")
+    print(f"  - 300 RPM (Case 1): {len(train_idx)} train / {len(tier_b_idx)} Tier B held-out snapshots")
+    print(f"  - 600 RPM (Case 4): {len(train_idx)} train / {len(tier_b_idx)} Tier B held-out snapshots")
     print(f"  - HELD-OUT TEST (TIER C): 450 RPM (Case 3, {len(tau_450)} snapshots) -> ZERO EXPOSURE DURING TRAINING")
 
-    # Combine balanced training set
-    train_X = np.concatenate([X_120, X_300, X_600], axis=0)  # (33, N_dof)
-    train_P = np.concatenate([P_120, P_300, P_600], axis=0)  # (33, 2)
+    # Combine balanced training set and separate Tier B in-domain held-out set
+    train_X = np.concatenate([X_120[train_idx], X_300[train_idx], X_600[train_idx]], axis=0)
+    train_P = np.concatenate([P_120[train_idx], P_300[train_idx], P_600[train_idx]], axis=0)
+    tier_b_X = np.concatenate([X_120[tier_b_idx], X_300[tier_b_idx], X_600[tier_b_idx]], axis=0)
+    tier_b_P = np.concatenate([P_120[tier_b_idx], P_300[tier_b_idx], P_600[tier_b_idx]], axis=0)
 
-    # 2. Fit Quadratic Parametric Mean Field m(x; N) = c2*N^2 + c1*N + c0
-    m_120 = np.mean(X_120, axis=0)
-    m_300 = np.mean(X_300, axis=0)
-    m_600 = np.mean(X_600, axis=0)
+    # 2. Fit Linear Parametric Mean Field m(x; N) = c1*N + c0 (least squares across 120, 300, 600 RPM, avoiding N^2 overshoot)
+    m_120 = np.mean(X_120[train_idx], axis=0)
+    m_300 = np.mean(X_300[train_idx], axis=0)
+    m_600 = np.mean(X_600[train_idx], axis=0)
 
     N_vec = np.array([120.0, 300.0, 600.0])
-    A_mat = np.column_stack([N_vec**2, N_vec, np.ones(3)])
-    poly_coeffs = np.linalg.solve(A_mat, np.vstack([m_120, m_300, m_600]))  # (3, N_dof)
+    A_mat = np.column_stack([N_vec, np.ones(3)])
+    poly_coeffs, _, _, _ = np.linalg.lstsq(A_mat, np.vstack([m_120, m_300, m_600]), rcond=None)  # (2, N_dof)
 
     # Condition-decoupled fluctuations
-    fluct_120 = X_120 - m_120
-    fluct_300 = X_300 - m_300
-    fluct_600 = X_600 - m_600
+    fluct_120 = X_120[train_idx] - m_120
+    fluct_300 = X_300[train_idx] - m_300
+    fluct_600 = X_600[train_idx] - m_600
     fluct_train = np.concatenate([fluct_120, fluct_300, fluct_600], axis=0)
 
     # 3. Calibrate Orthonormal Fluctuation Basis
@@ -110,7 +116,8 @@ def main():
         param_dim=2,
         hidden_dim=128,
         num_layers=4,
-        num_frequencies=16,
+        num_frequencies=2,
+        max_freq_log2=1.0,
     )
     model.register_buffer("mean_field", torch.from_numpy(np.mean(train_X, axis=0)).float())
     model.register_buffer("basis_matrix", torch.from_numpy(retained_basis).float())
@@ -125,7 +132,7 @@ def main():
     # 4. Train Neural Parameter Stepper
     print(f"\n• Training Neural Parameter Stepper f_theta(tau, RPM)...")
     model = model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-3)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=1500, eta_min=1e-5)
 
     target_a = fluct_train @ retained_basis.T  # (33, K)
@@ -177,6 +184,8 @@ def main():
         test_parameters=P_450,
         is_unseen_condition=True,
         operating_condition_label="Tier C Unseen Operating Condition: 450 RPM (Balanced Step-Response)",
+        tier_b_snapshots=tier_b_X,
+        tier_b_parameters=tier_b_P,
     )
 
     # 6. Export Refreshed Reports

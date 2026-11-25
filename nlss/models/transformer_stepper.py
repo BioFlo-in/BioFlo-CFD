@@ -75,11 +75,14 @@ class SpatialDecoder(nn.Module):
     def __init__(self, embed_dim: int = 256, out_channels: int = 3):
         super().__init__()
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(embed_dim, 128, kernel_size=4, stride=2, padding=1),
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(embed_dim, 128, kernel_size=3, padding=1),
             nn.GELU(),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.GELU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
             nn.GELU(),
             nn.Conv2d(32, out_channels, kernel_size=3, padding=1),
         )

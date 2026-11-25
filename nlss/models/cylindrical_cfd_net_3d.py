@@ -265,18 +265,18 @@ class BioFloCylindricalNet3D(nn.Module):
             for _ in range(num_layers)
         ])
         self.norms = nn.ModuleList([
-            nn.InstanceNorm3d(hidden_dim) for _ in range(num_layers)
+            nn.GroupNorm(num_groups=min(4, hidden_dim), num_channels=hidden_dim) for _ in range(num_layers)
         ])
 
         # Decoders:
-        # 1. 3D Vector Potential A = (Ax, Ay, Az) with dimensional scaling factor
+        # 1. 3D Vector Potential A = (Ax, Ay, Az) with learnable dimensional scaling factor
         self.vector_potential_head = nn.Sequential(
             nn.Conv3d(hidden_dim, hidden_dim, kernel_size=3, padding=1),
             nn.GELU(),
             nn.Conv3d(hidden_dim, 3, kernel_size=1),
         )
-        # Fixed dimensional scale parameter matching characteristic cell step hx = 0.0083 m
-        self.register_buffer("potential_scale", torch.tensor(float(hx), dtype=torch.float32))
+        # Learnable dimensional scale parameter initialized to characteristic cell step hx
+        self.potential_scale = nn.Parameter(torch.tensor(float(hx), dtype=torch.float32))
         self.curl_op = ExactCurlVelocityDecoder(hx=hx, hy=hy, hz=hz)
 
         # 2. Pressure Head p
@@ -286,12 +286,12 @@ class BioFloCylindricalNet3D(nn.Module):
             nn.Conv3d(hidden_dim // 2, 1, kernel_size=1),
         )
 
-        # 3. Multiphase Alpha Head
+        # 3. Multiphase Alpha Head (bounded [0, 1] without asymptotic saturation at 0)
         self.alpha_head = nn.Sequential(
             nn.Conv3d(hidden_dim, hidden_dim // 2, kernel_size=1),
             nn.GELU(),
             nn.Conv3d(hidden_dim // 2, 1, kernel_size=1),
-            nn.Sigmoid(),
+            nn.Hardtanh(min_val=0.0, max_val=1.0),
         )
 
     def compute_cylindrical_coordinates(

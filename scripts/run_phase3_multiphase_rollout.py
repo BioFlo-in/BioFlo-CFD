@@ -70,8 +70,11 @@ def main():
     pod_basis = torch.from_numpy(basis_np).float()
     base_flow = torch.from_numpy(mean_field_np).float()
 
-    # 3. Instantiate Learned Numerical Evolution Engine
-    print(f"\n[3/5] Instantiating Learned Numerical Evolution Engine...")
+    # 3. Instantiate Learned Numerical Evolution Engine with physical grid spacings
+    dx = spec.Dt / W
+    dy = spec.Dt / H
+    dz = spec.H / D
+    print(f"\n[3/5] Instantiating Learned Numerical Evolution Engine (dx={dx*1000:.1f}mm, dz={dz*1000:.1f}mm)...")
     engine = LearnedNumericalEvolutionEngine(
         pod_basis=pod_basis,
         base_flow=base_flow,
@@ -82,6 +85,7 @@ def main():
         num_blocks=3,
         dissipative_damping=0.005,
         enforce_projection_in_loop=True,
+        spacings=(dx, dy, dz),
     )
 
     # 4. Train with multi-step rollout loss (K=5 steps)
@@ -197,10 +201,12 @@ def main():
     # Save benchmark report
     report = {
         "benchmark": "Phase3_Long_Horizon_Multiphase_Rollout",
+        "data_source": "analytical_divergence_free_proxy",
         "num_steps": num_rollout_steps,
         "dt": float(dt_step.item()),
         "test_rpm": test_rpm,
         "n_modes": n_modes,
+        "spacings_m": [dx, dy, dz],
         "stability_metrics": {
             "initial_kinetic_energy": ke_initial,
             "final_kinetic_energy": ke_final,

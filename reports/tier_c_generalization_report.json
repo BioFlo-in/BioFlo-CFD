@@ -1,7 +1,7 @@
 {
   "title": "BioFlo-CFD: Scientific Verification & Performance Audit Report",
   "condition_label": "Tier C Unseen Operating Condition: 450 RPM (Balanced Step-Response)",
-  "timestamp": "2026-11-23 18:54:18 UTC",
+  "timestamp": "2026-11-25 18:04:16 UTC",
   "model_metadata": {
     "model_name": "BioFlo-NeuralPODOperator3D",
     "is_calibrated": true,
@@ -9,7 +9,7 @@
     "param_dim": 2,
     "hidden_dim": 128,
     "num_layers": 4,
-    "total_trainable_parameters": 60692,
+    "total_trainable_parameters": 53524,
     "device": "cuda:0",
     "spatial_dof": 66048,
     "has_param_bounds": true
@@ -35,183 +35,187 @@
   },
   "three_tier_hierarchy": {
     "tier_a_pod_reconstruction": {
-      "rel_l2_error": 0.20411512568166562,
-      "reconstruction_accuracy_pct": 79.58848743183344,
-      "r2_score": 0.9581311117621256,
+      "rel_l2_error": 0.22581183143666003,
+      "reconstruction_accuracy_pct": 77.41881685633399,
+      "r2_score": 0.9487570129355312,
       "description": "Optimal orthogonal projection limit (information truncation loss)"
     },
     "tier_b_neural_prediction": {
-      "rel_l2_error": 0.6235251998023983,
-      "prediction_accuracy_pct": 37.647480019760174,
-      "r2_score": 0.609294907427629,
-      "modal_amplitude_rel_l2": 1.0273136458638075,
+      "rel_l2_error": 0.3502983157045806,
+      "prediction_accuracy_pct": 64.97016842954194,
+      "r2_score": 0.8766897756965166,
+      "modal_amplitude_rel_l2": 0.6497288784749721,
+      "evaluation_scope": "in_domain_heldout_timesteps",
       "description": "Neural mode decoupling accuracy on held-out temporal snapshots"
     },
     "tier_c_cfd_generalization": {
-      "rel_l2_error": 0.6235251998023983,
-      "generalization_accuracy_pct": 37.647480019760174,
-      "r2_score": 0.609294907427629,
-      "modal_amplitude_rel_l2": 1.0273136458638075,
+      "rel_l2_error": 0.4407997433034272,
+      "generalization_accuracy_pct": 55.92002566965728,
+      "r2_score": 0.8047353094706894,
+      "modal_amplitude_rel_l2": 0.8917874071763946,
       "description": "True out-of-sample CFD generalization on unseen operating condition"
     }
   },
   "global_velocity_metrics": {
-    "global_rel_l2": 0.6235251998023983,
-    "global_rel_l1": 0.6174813761641037,
-    "global_rel_linf": 0.7902954769492778,
-    "global_r2": 0.609294907427629,
-    "rmse": 0.6808992463666631,
-    "mae": 0.4125562636375081,
+    "global_rel_l2": 0.4407997433034272,
+    "global_rel_l1": 0.4381206198184106,
+    "global_rel_linf": 0.594388603906776,
+    "global_r2": 0.8047353094706894,
+    "rmse": 0.4813601970040945,
+    "mae": 0.29272041702322715,
     "components": {
       "ux": {
-        "rel_l2": 0.6766897520348302,
-        "rel_l1": 0.6145242766582052,
-        "rel_linf": 0.7489519101813804,
-        "rmse": 0.2218150315746337,
-        "mae": 0.17106058761816134,
-        "r2": -0.6420700344678083
+        "rel_l2": 0.47203738083650393,
+        "rel_l1": 0.4635488129774556,
+        "rel_linf": 0.5729883356899851,
+        "rmse": 0.44972818461204744,
+        "mae": 0.25296307276383245,
+        "r2": 0.7771663262487278
       },
       "uy": {
-        "rel_l2": 0.9407044671161574,
-        "rel_l1": 0.9352898747120331,
-        "rel_linf": 0.8906361406063972,
-        "rmse": 0.3436718017256863,
-        "mae": 0.2393215208907019,
-        "r2": -0.06682541830316047
+        "rel_l2": 0.45213821038400004,
+        "rel_l1": 0.4484471008008265,
+        "rel_linf": 0.6338532524702486,
+        "rmse": 0.47068441937398997,
+        "mae": 0.282835795360091,
+        "r2": 0.7955678709935735
       },
       "uz": {
-        "rel_l2": 2.065067721149901,
-        "rel_l1": 1.8318827288601243,
-        "rel_linf": 2.2882549680956044,
-        "rmse": 0.36522042544228417,
-        "mae": 0.2416242499073798,
-        "r2": -3.6453827430139683
+        "rel_l2": 0.41360290359798363,
+        "rel_l1": 0.41349500258497396,
+        "rel_linf": 0.9219281227067789,
+        "rmse": 0.520887372762658,
+        "mae": 0.342362382945758,
+        "r2": 0.8232309231856498
       },
       "magnitude": {
-        "rel_l2": 0.6407503826797496,
-        "rel_l1": 0.5629251350504754,
-        "rel_linf": 0.7846758966948247,
-        "rmse": 0.3342952479638045,
-        "mae": 0.2556568630394439,
-        "r2": -0.6948438368878973
+        "rel_l2": 0.3729932649025871,
+        "rel_l1": 0.3222103945591832,
+        "rel_linf": 0.615088772565493,
+        "rmse": 0.7054893474835112,
+        "mae": 0.43965507023321354,
+        "r2": 0.7098957368132262
       }
     },
     "angular_alignment": {
-      "mean_cos_theta": 0.45279154216470513,
-      "mean_angle_deg": 58.55799421973115,
-      "max_angle_deg": 117.24743208879099,
-      "p95_angle_deg": 114.86017863988377
+      "mean_cos_theta": 0.8491944416162546,
+      "mean_angle_deg": 23.89537476966382,
+      "max_angle_deg": 179.7047755948737,
+      "p95_angle_deg": 75.68523690584402
     }
   },
   "regional_roi_metrics": {
     "impeller_discharge": {
-      "rel_l2_error": 0.7867836625440037,
-      "rel_l1_error": 0.7845959340552262,
-      "rel_linf_error": 0.7655283597395335,
-      "rmse": 0.7512203164674824,
-      "mean_angle_deg": 30.746540213369588
+      "rel_l2_error": 0.5028302931800558,
+      "rel_l1_error": 0.5111836499058751,
+      "rel_linf_error": 0.477995373881897,
+      "rmse": 0.4699656841303353,
+      "mean_angle_deg": 21.142534830001903
     },
     "wall_baffles": {
-      "rel_l2_error": 0.5629905124595762,
-      "rel_l1_error": 0.5742978138675479,
-      "rel_linf_error": 0.6287567576308173,
-      "rmse": 0.7188164025575177,
-      "mean_angle_deg": 28.83871381024224
+      "rel_l2_error": 0.4161559683429567,
+      "rel_l1_error": 0.4418806460860697,
+      "rel_linf_error": 0.42729873927905254,
+      "rmse": 0.5293727915715364,
+      "mean_angle_deg": 23.581027872064723
     },
     "dished_bottom": {
-      "rel_l2_error": 0.6283582557112696,
-      "rel_l1_error": 0.6730563308400084,
-      "rel_linf_error": 0.7590295043008743,
-      "rmse": 0.669926352599904,
-      "mean_angle_deg": 29.013697268947062
+      "rel_l2_error": 0.45790345795377313,
+      "rel_l1_error": 0.4975979935930482,
+      "rel_linf_error": 0.5528072670038727,
+      "rmse": 0.48215064811687625,
+      "mean_angle_deg": 23.342770147316283
     },
     "free_surface": {
-      "rel_l2_error": 0.7754945082434366,
-      "rel_l1_error": 0.7531579265303101,
-      "rel_linf_error": 0.6196096223301343,
-      "rmse": 0.6876025975275787,
-      "mean_angle_deg": 32.26057249108247
+      "rel_l2_error": 0.5603878726873103,
+      "rel_l1_error": 0.5516663383231074,
+      "rel_linf_error": 0.40839703746436595,
+      "rmse": 0.4954044777857932,
+      "mean_angle_deg": 25.772435068323066
     },
     "bulk_recirculation": {
-      "rel_l2_error": 0.6748181758224561,
-      "rel_l1_error": 0.6976664824670158,
-      "rel_linf_error": 0.5904933335529086,
-      "rmse": 0.6208409467773751,
-      "mean_angle_deg": 30.250433389303375
+      "rel_l2_error": 0.4665825154281231,
+      "rel_l1_error": 0.49402664618243664,
+      "rel_linf_error": 0.3795912977366962,
+      "rmse": 0.42564365548727195,
+      "mean_angle_deg": 22.900443247313632
     }
   },
   "physics_residuals": {
-    "mean_abs_divergence": 10.274549821107772,
-    "max_abs_divergence": 223.12670898085634,
-    "vorticity_rel_l2_error": 0.7016270340826255,
-    "vorticity_rmse": 23.81933907585977
+    "mean_abs_divergence": 13.420102323354541,
+    "max_abs_divergence": 388.4800888849212,
+    "vorticity_rel_l2_error": 0.5485041154249319,
+    "vorticity_rmse": 19.380952917789887
   },
   "bioprocess_engineering_metrics": {
-    "specific_power_predicted_w_m3": 1.8197433760594603,
-    "specific_power_true_cfd_w_m3": 6.284646476301077,
-    "specific_power_relative_error": 0.7030144675238896,
-    "kla_predicted_h_inv": 12.152152539401039,
-    "kla_true_cfd_h_inv": 20.93270117858078,
-    "kla_relative_error": 0.4216087417835414,
-    "max_shear_rate_predicted_s_inv": 288.50725566296256,
-    "max_shear_rate_true_cfd_s_inv": 483.66147990231866,
-    "max_shear_rate_relative_error": 0.3788766426813777,
-    "kolmogorov_predicted_um": 154.71032039925927,
-    "kolmogorov_true_cfd_um": 117.21705178161088,
-    "kolmogorov_relative_error": 0.37013909373594955,
+    "specific_power_predicted_w_m3": 3.1782829208983756,
+    "specific_power_true_cfd_w_m3": 7.0628900306649625,
+    "specific_power_relative_error": 0.5144482481532349,
+    "kla_predicted_h_inv": 15.474806743193268,
+    "kla_true_cfd_h_inv": 22.042302993387697,
+    "kla_relative_error": 0.28929914779379107,
+    "mean_shear_rate_predicted_s_inv": 36.29455274741378,
+    "mean_shear_rate_true_cfd_s_inv": 55.36810151796244,
+    "mean_shear_rate_relative_error": 0.35329105253733045,
+    "max_shear_rate_predicted_s_inv": 595.6386964613947,
+    "max_shear_rate_true_cfd_s_inv": 846.4095602893965,
+    "max_shear_rate_relative_error": 0.2764384298563779,
+    "kolmogorov_predicted_um": 136.69423250831167,
+    "kolmogorov_true_cfd_um": 113.92219149675452,
+    "kolmogorov_relative_error": 0.22807569766202168,
     "mixing_time_95_s": 5.706360997696827,
     "circulation_time_s": 10.019710254214932,
     "pumping_rate_m3_s": 0.025730415000000006
   },
   "inference_performance": {
     "device": "cuda:0",
-    "single_snapshot_latency_ms": 0.6403317202057224,
-    "single_snapshot_p95_ms": 0.6752763512849924,
-    "cfd_speedup_factor": 25767.894129828637,
+    "single_snapshot_latency_ms": 0.3769770204962697,
+    "single_snapshot_p95_ms": 0.41218505466531496,
+    "cfd_speedup_factor": 43769.24602594982,
     "batches": {
       "batch_1": {
         "batch_size": 1,
-        "mean_latency_ms": 0.6403317202057224,
-        "latency_per_snapshot_ms": 0.6403317202057224,
-        "median_latency_ms": 0.6373030009854119,
-        "p95_latency_ms": 0.6752763512849924,
-        "p99_latency_ms": 0.6856699887794093,
-        "min_latency_ms": 0.6252560015127528,
-        "max_latency_ms": 0.690838998707477,
-        "throughput_snapshots_per_sec": 1561.690555761825,
+        "mean_latency_ms": 0.3769770204962697,
+        "latency_per_snapshot_ms": 0.3769770204962697,
+        "median_latency_ms": 0.3723800000443589,
+        "p95_latency_ms": 0.41218505466531496,
+        "p99_latency_ms": 0.42544143470877316,
+        "min_latency_ms": 0.3606989994295873,
+        "max_latency_ms": 0.431318003393244,
+        "throughput_snapshots_per_sec": 2652.6815843670115,
         "openfoam_baseline_sec": 16.5,
-        "cfd_speedup_factor": 25767.894129828637,
-        "gpu_allocated_mb": 23.4873046875,
+        "cfd_speedup_factor": 43769.24602594982,
+        "gpu_allocated_mb": 23.125,
         "gpu_reserved_mb": 44.0
       },
       "batch_4": {
         "batch_size": 4,
-        "mean_latency_ms": 0.6596876000548946,
-        "latency_per_snapshot_ms": 0.16492190001372364,
-        "median_latency_ms": 0.6581624984391965,
-        "p95_latency_ms": 0.6682775498120463,
-        "p99_latency_ms": 0.6768270712564117,
-        "min_latency_ms": 0.651174002996413,
-        "max_latency_ms": 0.6814610023866408,
-        "throughput_snapshots_per_sec": 6063.476105458323,
+        "mean_latency_ms": 0.3944159604725428,
+        "latency_per_snapshot_ms": 0.0986039901181357,
+        "median_latency_ms": 0.3917555004591122,
+        "p95_latency_ms": 0.4260050991433672,
+        "p99_latency_ms": 0.43499204104591627,
+        "min_latency_ms": 0.37882199831074104,
+        "max_latency_ms": 0.43587599793681875,
+        "throughput_snapshots_per_sec": 10141.577423002027,
         "openfoam_baseline_sec": 16.5,
-        "cfd_speedup_factor": 100047.35513342758,
-        "gpu_allocated_mb": 24.2431640625,
+        "cfd_speedup_factor": 167336.02578248217,
+        "gpu_allocated_mb": 23.880859375,
         "gpu_reserved_mb": 44.0
       },
       "batch_16": {
         "batch_size": 16,
-        "mean_latency_ms": 0.7645531396701699,
-        "latency_per_snapshot_ms": 0.04778457122938562,
-        "median_latency_ms": 0.7610009997733869,
-        "p95_latency_ms": 0.7898704998297035,
-        "p99_latency_ms": 0.8032485993317096,
-        "min_latency_ms": 0.7417449996864889,
-        "max_latency_ms": 0.8085699992079753,
-        "throughput_snapshots_per_sec": 20927.256942404867,
+        "mean_latency_ms": 0.4888003996165935,
+        "latency_per_snapshot_ms": 0.030550024976037093,
+        "median_latency_ms": 0.48606699783704244,
+        "p95_latency_ms": 0.5138035492564086,
+        "p99_latency_ms": 0.5205463380843867,
+        "min_latency_ms": 0.4707789994427003,
+        "max_latency_ms": 0.5215919954935089,
+        "throughput_snapshots_per_sec": 32733.197461683994,
         "openfoam_baseline_sec": 16.5,
-        "cfd_speedup_factor": 345299.73232350405,
-        "gpu_allocated_mb": 27.2666015625,
+        "cfd_speedup_factor": 540097.7404386599,
+        "gpu_allocated_mb": 26.904296875,
         "gpu_reserved_mb": 44.0
       }
     }

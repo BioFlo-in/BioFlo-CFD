@@ -209,32 +209,29 @@ def main():
         param_dim=1,
         hidden_dim=256,
         num_layers=4,
-        num_frequencies=16,
+        num_frequencies=8,
+        max_freq_log2=3.0,
     ).to(device)
 
     t_calib = time.time()
-    calib_stats = model.calibrate_basis(train_snaps, n_modes=K_modes)
+    t_min, t_max = float(times.min()), float(times.max())
+    calib_stats = model.calibrate_basis(train_snaps, n_modes=K_modes, param_bounds=([t_min], [t_max]))
     target_A_train = calib_stats["target_mode_amplitudes"]
     print(f"✓ SVD Calibration Finished in {time.time() - t_calib:.2f}s", flush=True)
     print(f"• Training Set Cumulative SVD Kinetic Energy: {calib_stats['cumulative_energy_pct']:.4f}%", flush=True)
     print(f"• Theoretical Reconstruction Accuracy:       {calib_stats['theoretical_reconstruction_accuracy_pct']:.4f}%", flush=True)
     print(f"• Theoretical Relative L2 Truncation Error:   {calib_stats['theoretical_rel_l2_pct']:.4f}%", flush=True)
 
-    # 5. Train High-Frequency Fourier Feature Network
-    t_min, t_max = times.min(), times.max()
-    t_norm_all = (times - t_min) / (t_max - t_min)
-    t_norm_train = t_norm_all[train_indices]
-    t_norm_test = t_norm_all[test_indices]
-
-    t_tensor_train = torch.tensor(t_norm_train, dtype=torch.float32).unsqueeze(-1).to(device)
+    # 5. Train Regularized Fourier Feature Network on raw physical times (normalized identically via model.param_min/max)
+    t_tensor_train = torch.tensor(train_times, dtype=torch.float32).unsqueeze(-1).to(device)
     target_A_tensor_train = torch.tensor(target_A_train, dtype=torch.float32).to(device)
 
-    optimizer = torch.optim.AdamW(model.mlp.parameters(), lr=5e-3, weight_decay=1e-6)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=3500, eta_min=1e-5)
+    optimizer = torch.optim.AdamW(model.mlp.parameters(), lr=3e-3, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2500, eta_min=1e-5)
 
     print("\n⚡ Training Fourier Feature Neural Coefficient Predictor...", flush=True)
     t_train_start = time.time()
-    for epoch in range(1, 3501):
+    for epoch in range(1, 2501):
         optimizer.zero_grad()
         pred_A = model.predict_coefficients(t_tensor_train)
         loss_mse = torch.mean((pred_A - target_A_tensor_train) ** 2)
@@ -244,10 +241,10 @@ def main():
         optimizer.step()
         scheduler.step()
 
-        if epoch % 500 == 0 or epoch == 3500:
-            print(f"  Epoch [{epoch:4d}/3500] | Loss: {loss.item():.7e} | MSE: {loss_mse.item():.7e}", flush=True)
+        if epoch % 500 == 0 or epoch == 2500:
+            print(f"  Epoch [{epoch:4d}/2500] | Loss: {loss.item():.7e} | MSE: {loss_mse.item():.7e}", flush=True)
 
-    print(f"✓ Mode Predictor Converged in {time.time() - t_train_start:.2f}s with loss < 1e-6!", flush=True)
+    print(f"✓ Mode Predictor Converged in {time.time() - t_train_start:.2f}s!", flush=True)
 
     # Save Checkpoint
     os.makedirs(ckpt_save_path.parent, exist_ok=True)
@@ -268,7 +265,7 @@ def main():
     print("=" * 85, flush=True)
 
     model.eval()
-    t_tensor_all = torch.tensor(t_norm_all, dtype=torch.float32).unsqueeze(-1).to(device)
+    t_tensor_all = torch.tensor(times, dtype=torch.float32).unsqueeze(-1).to(device)
     with torch.no_grad():
         reconstructed_field = model(t_tensor_all).cpu().numpy()  # (81, 566784)
 

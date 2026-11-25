@@ -156,29 +156,41 @@ class BiRDMeshAdapter:
         self,
         coords: np.ndarray,
         spec: StirredTankSpec,
+        cylindrical: bool = False,
     ) -> np.ndarray:
         """
-        Maps physical (x, y, z) coordinates into scale-invariant dimensionless space:
-            r = sqrt(x^2 + y^2)
-            xi = r / (Dt / 2)       in [0, 1]
-            theta = atan2(y, x)      in [0, 2*pi]
-            zeta = (z - Z0) / H      in [0, 1]
+        Maps physical (x, y, z) coordinates into scale-invariant dimensionless space.
+
+        By default (cylindrical=False), returns normalized Cartesian coordinates:
+            xi_x = x / (Dt / 2)   in [-1, 1]
+            xi_y = y / (Dt / 2)   in [-1, 1]
+            zeta = (z - Z0) / H   in [0, 1]
+
+        When cylindrical=True, returns cylindrical coordinates:
+            xi_r = sqrt(x^2 + y^2) / (Dt / 2)  in [0, 1]
+            theta = atan2(y, x)                in [-pi, pi]
+            zeta = (z - Z0) / H                in [0, 1]
 
         Args:
             coords: Array of shape (N, 3) with columns [x, y, z].
             spec: StirredTankSpec containing Dt, H, Z0.
+            cylindrical: If True, return [xi_r, theta, zeta] instead of [xi_x, xi_y, zeta].
         Returns:
-            Normalized coordinates array of shape (N, 3) with [xi_x, xi_y, zeta] in [-1, 1]x[-1, 1]x[0, 1]
+            Normalized coordinates array of shape (N, 3).
         """
         R_tank = spec.Dt / 2.0
         x = coords[:, 0]
         y = coords[:, 1]
         z = coords[:, 2]
+        zeta = (z - spec.Z0) / spec.H
+
+        if cylindrical:
+            xi_r = np.sqrt(x**2 + y**2) / R_tank
+            theta = np.arctan2(y, x)
+            return np.column_stack([xi_r, theta, zeta])
 
         xi_x = x / R_tank
         xi_y = y / R_tank
-        zeta = (z - spec.Z0) / spec.H
-
         return np.column_stack([xi_x, xi_y, zeta])
 
     def denormalize_coordinates(

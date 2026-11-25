@@ -149,10 +149,11 @@ def export_simulation_state_to_openfoam(
     """
     case_dir = Path(case_dir)
     # Format time directory string (e.g. 0.05 or 0.1)
-    if time_val.is_integer():
-        time_str = f"{int(time_val)}"
+    t_float = float(time_val)
+    if t_float.is_integer():
+        time_str = f"{int(t_float)}"
     else:
-        time_str = f"{time_val:.4f}".rstrip("0").rstrip(".")
+        time_str = f"{t_float:.4f}".rstrip("0").rstrip(".")
 
     target_time_dir = case_dir / time_str
     target_time_dir.mkdir(parents=True, exist_ok=True)
@@ -198,10 +199,11 @@ def export_multiphase_simulation_state_to_openfoam(
       - p_rgh
     """
     case_dir = Path(case_dir)
-    if time_val == 0.0 or time_val.is_integer():
-        time_str = f"{int(time_val)}"
+    t_float = float(time_val)
+    if t_float == 0.0 or t_float.is_integer():
+        time_str = f"{int(t_float)}"
     else:
-        time_str = f"{time_val:.4f}".rstrip("0").rstrip(".")
+        time_str = f"{t_float:.4f}".rstrip("0").rstrip(".")
 
     target_time_dir = case_dir / time_str
     target_time_dir.mkdir(parents=True, exist_ok=True)

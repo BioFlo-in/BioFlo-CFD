@@ -4,6 +4,7 @@ Learns resolution-invariant operator mapping from state S_t = (u, v, p) to S_{t+
 Based on spectral convolutions in Fourier frequency domain.
 """
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -21,12 +22,12 @@ class SpectralConv2d(nn.Module):
         self.modes1 = modes1  # Number of Fourier modes along dimension 1
         self.modes2 = modes2  # Number of Fourier modes along dimension 2
 
-        self.scale = 1.0 / (in_channels * out_channels)
+        self.scale = 1.0 / math.sqrt(in_channels * out_channels)
         self.weights1 = nn.Parameter(
-            self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat)
+            self.scale * torch.randn(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat)
         )
         self.weights2 = nn.Parameter(
-            self.scale * torch.rand(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat)
+            self.scale * torch.randn(in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat)
         )
 
     def compl_mul2d(self, input_tensor: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
@@ -37,8 +38,8 @@ class SpectralConv2d(nn.Module):
         # x shape: (batch, channels, H, W)
         batchsize, _, H, W = x.shape
 
-        # Compute 2D Real FFT
-        x_ft = torch.fft.rfft2(x)
+        # Compute 2D Orthonormal Real FFT
+        x_ft = torch.fft.rfft2(x, norm="ortho")
 
         # Output Fourier representation initialized to zeros
         out_ft = torch.zeros(
@@ -62,7 +63,7 @@ class SpectralConv2d(nn.Module):
         )
 
         # Inverse FFT back to spatial domain
-        x_out = torch.fft.irfft2(out_ft, s=(H, W))
+        x_out = torch.fft.irfft2(out_ft, s=(H, W), norm="ortho")
         return x_out
 
 
